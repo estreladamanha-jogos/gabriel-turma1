@@ -512,57 +512,72 @@ function drawObstacle(o) {
     ctx.fillStyle = '#8a3d00';
     ctx.fillRect(x - w*0.65, y - 5*s, w*1.3, 5*s);
   } else {
-    // caminhão vermelho: maior que o skatista, fica só na própria pista,
-    // não dá pra passar de jeito nenhum (nem pulando).
-    const w = 150*s, h = 175*s;
-    const cabinW = w*0.34;
+    // caminhão vermelho, visto de frente vindo reto na pista (como na
+    // vida real): maior que o skatista, fica só na própria pista e não
+    // dá pra passar de jeito nenhum (nem pulando).
+    const w = 148*s, h = 172*s;
+    const bodyW = w * 0.84;
+    const bx = x - bodyW/2;
 
-    // rodas
-    ctx.fillStyle = '#1a1a1a';
-    const wheelR = 15*s;
-    for (const wx of [x - w/2 + cabinW*0.6, x - 6*s, x + w*0.18]) {
-      ctx.beginPath(); ctx.arc(wx, y - wheelR*0.6, wheelR, 0, Math.PI*2); ctx.fill();
-    }
-    ctx.fillStyle = '#555';
-    for (const wx of [x - w/2 + cabinW*0.6, x - 6*s, x + w*0.18]) {
-      ctx.beginPath(); ctx.arc(wx, y - wheelR*0.6, wheelR*0.4, 0, Math.PI*2); ctx.fill();
-    }
+    // rodas dianteiras, uma de cada lado, aparecendo por baixo da carroceria
+    ctx.fillStyle = '#161616';
+    const wheelW = w*0.15, wheelH = h*0.24;
+    ctx.fillRect(bx - wheelW*0.55, y - wheelH, wheelW, wheelH);
+    ctx.fillRect(bx + bodyW - wheelW*0.45, y - wheelH, wheelW, wheelH);
+    ctx.fillStyle = '#444';
+    ctx.beginPath(); ctx.arc(bx, y - wheelH*0.5, wheelW*0.32, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx + bodyW, y - wheelH*0.5, wheelW*0.32, 0, Math.PI*2); ctx.fill();
 
-    // caçamba (baú) vermelha
-    const boxX = x - w/2 + cabinW, boxW = w - cabinW;
-    const g = ctx.createLinearGradient(boxX, y - h, boxX + boxW, y);
+    // frente da carroceria/cabine
+    const g = ctx.createLinearGradient(bx, y - h, bx + bodyW, y);
     g.addColorStop(0, '#ff5a4d'); g.addColorStop(1, '#c81e1e');
     ctx.fillStyle = g;
-    ctx.fillRect(boxX, y - h, boxW, h*0.82);
-    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 3*s);
-    ctx.strokeRect(boxX, y - h, boxW, h*0.82);
-    // frisos do baú
-    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = Math.max(1, 2*s);
-    for (let i = 1; i < 4; i++) {
-      const lx = boxX + (boxW/4)*i;
-      ctx.beginPath(); ctx.moveTo(lx, y - h); ctx.lineTo(lx, y - h*0.18); ctx.stroke();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, y - h, bodyW, h*0.88, 8*s);
+    else ctx.rect(bx, y - h, bodyW, h*0.88);
+    ctx.fill();
+    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 3*s); ctx.stroke();
+
+    // para-choque
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(bx - w*0.03, y - h*0.16, bodyW + w*0.06, h*0.16);
+
+    // grade do radiador
+    ctx.fillStyle = '#242424';
+    const gW = bodyW*0.46, gX = bx + (bodyW - gW)/2;
+    ctx.fillRect(gX, y - h*0.44, gW, h*0.22);
+    ctx.strokeStyle = '#555'; ctx.lineWidth = Math.max(1, 1.5*s);
+    for (let i = 1; i < 5; i++) {
+      const lx = gX + (gW/5)*i;
+      ctx.beginPath(); ctx.moveTo(lx, y - h*0.44); ctx.lineTo(lx, y - h*0.22); ctx.stroke();
     }
 
-    // cabine
-    const cabX = x - w/2;
-    const cg = ctx.createLinearGradient(cabX, y - h*0.62, cabX + cabinW, y);
-    cg.addColorStop(0, '#ff8f80'); cg.addColorStop(1, '#e02e2e');
-    ctx.fillStyle = cg;
-    ctx.fillRect(cabX, y - h*0.62, cabinW, h*0.44);
-    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 3*s);
-    ctx.strokeRect(cabX, y - h*0.62, cabinW, h*0.44);
+    // faróis
+    ctx.fillStyle = '#fff6c8';
+    ctx.beginPath(); ctx.ellipse(bx + bodyW*0.14, y - h*0.32, w*0.045, h*0.05, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(bx + bodyW*0.86, y - h*0.32, w*0.045, h*0.05, 0, 0, Math.PI*2); ctx.fill();
+
     // para-brisa
     ctx.fillStyle = '#bfe8ff';
-    ctx.fillRect(cabX + cabinW*0.15, y - h*0.58, cabinW*0.7, h*0.16);
-    // faixa de perigo amarelo/preto embaixo do baú
+    ctx.fillRect(bx + bodyW*0.12, y - h*0.84, bodyW*0.76, h*0.26);
+    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 2*s);
+    ctx.strokeRect(bx + bodyW*0.12, y - h*0.84, bodyW*0.76, h*0.26);
+    ctx.beginPath(); ctx.moveTo(x, y - h*0.84); ctx.lineTo(x, y - h*0.58); ctx.stroke();
+
+    // espelhos retrovisores
+    ctx.fillStyle = '#7a0f0f';
+    ctx.fillRect(bx - w*0.08, y - h*0.7, w*0.06, h*0.12);
+    ctx.fillRect(bx + bodyW + w*0.02, y - h*0.7, w*0.06, h*0.12);
+
+    // faixa de perigo amarelo/preto no para-choque
     ctx.save();
-    ctx.beginPath(); ctx.rect(boxX, y - h*0.22, boxW, h*0.1); ctx.clip();
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(boxX, y - h*0.22, boxW, h*0.1);
+    ctx.beginPath(); ctx.rect(bx, y - h*0.16, bodyW, h*0.16); ctx.clip();
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(bx, y - h*0.16, bodyW, h*0.16);
     const stripe = 10*s;
-    for (let sx = -h; sx < boxW + h; sx += stripe*2) {
+    for (let sx = -h; sx < bodyW + h; sx += stripe*2) {
       poly([
-        [boxX+sx, y-h*0.12], [boxX+sx+stripe, y-h*0.12],
-        [boxX+sx+stripe+h*0.1, y-h*0.22], [boxX+sx+h*0.1, y-h*0.22]
+        [bx+sx, y-h*0.06], [bx+sx+stripe, y-h*0.06],
+        [bx+sx+stripe+h*0.16, y-h*0.16], [bx+sx+h*0.16, y-h*0.16]
       ], '#1a1a1a');
     }
     ctx.restore();
