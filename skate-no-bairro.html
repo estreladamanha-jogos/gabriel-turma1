@@ -60,7 +60,7 @@
 
   <canvas id="game" width="900" height="500"></canvas>
 
-  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · pule os cones, desvie do caminhão!</div>
+  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · viu o aviso ⚠️ lá em cima? troque de pista!</div>
 
   <div id="overlay">
     <h2 id="overlayTitle">🏁 CHEGOU!</h2>
@@ -73,10 +73,11 @@
 /* =========================================================
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
-   obstáculos e objetivo (chegar ao fim da rua) já
-   funcionam, mas ainda não tem vida extra, perseguidor
-   nem níveis — isso a turma constrói nas próximas
-   missões, sempre em cima deste código.
+   obstáculos de pista, vaso que cai de sacada (com aviso)
+   e objetivo (chegar ao fim da rua) já funcionam, mas
+   ainda não tem perseguidor nem níveis — isso a turma
+   constrói nas próximas missões, sempre em cima deste
+   código.
    ========================================================= */
 
 const canvas = document.getElementById('game');
@@ -155,6 +156,41 @@ function checaColisao(o) {
   return false;
 }
 
+// ---------- Vaso que cai da sacada ----------
+// Um morador aparece na sacada, o vaso fica 1s "tremendo" (aviso) e
+// depois despenca reto numa pista. Pular não adianta: ele vem de cima
+// e o golpe é checado direto na pista, sem olhar a altura do pulo — só
+// trocar de pista salva. Enquanto o aviso está ativo, a sacada "nasce"
+// no cenário, no alto, bem em cima da pista escolhida, e some no final.
+const WARN_TIME = 1;      // segundos de aviso antes do vaso cair
+const FALL_TIME = 0.4;    // segundos caindo até o chão
+const SPLAT_TIME = 0.6;   // segundos do estrago no chão, antes de sumir
+let fallEvents = [];
+let fallSpawnTimer = randFallGap();
+function randFallGap() { return 4 + Math.random() * 3; } // 4 a 7 segundos
+
+function update_fallEvents(dt) {
+  fallSpawnTimer -= dt;
+  if (fallSpawnTimer <= 0) {
+    fallEvents.push({ lane: Math.floor(Math.random() * 3), state: 'aviso', timer: WARN_TIME });
+    fallSpawnTimer = randFallGap();
+  }
+  for (const f of fallEvents) {
+    f.timer -= dt;
+    if (f.state === 'aviso' && f.timer <= 0) {
+      f.state = 'caindo';
+      f.timer = FALL_TIME;
+    } else if (f.state === 'caindo' && f.timer <= 0) {
+      if (!player.invincible && Math.abs(player.lane - f.lane) < 0.55) loseLife('vaso');
+      f.state = 'estrago';
+      f.timer = SPLAT_TIME;
+    } else if (f.state === 'estrago' && f.timer <= 0) {
+      f.done = true;
+    }
+  }
+  fallEvents = fallEvents.filter(f => !f.done);
+}
+
 // ---------- Controle ----------
 const keys = {};
 window.addEventListener('keydown', e => {
@@ -215,6 +251,9 @@ function update(dt) {
   }
   if (gameOver) return;
 
+  update_fallEvents(dt);
+  if (gameOver) return;
+
   const pct = Math.min(100, distance / TRACK_LENGTH * 100);
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressIcon').style.left = pct + '%';
@@ -255,6 +294,8 @@ function crashGame(type) {
   title.style.textShadow = '3px 3px 0 #000, 0 0 16px #ff1a1a';
   document.getElementById('overlayText').textContent = type === 'caminhao'
     ? `Você bateu no caminhão! Moedas: ${coinCount}`
+    : type === 'vaso'
+    ? `Um vaso caiu bem na sua cabeça! Moedas: ${coinCount}`
     : `Você bateu num cone! Moedas: ${coinCount}`;
   document.getElementById('overlay').classList.add('show');
 }
@@ -272,6 +313,8 @@ function restart() {
   buildCoins();
   obstacles = [];
   spawnTimer = randSpawnGap();
+  fallEvents = [];
+  fallSpawnTimer = randFallGap();
   document.getElementById('coinVal').textContent = 0;
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('progressIcon').style.left = '0%';
@@ -584,6 +627,99 @@ function drawObstacle(o) {
   }
 }
 
+// ---------- Desenho: vaso, aviso e sacada ----------
+function drawFallWarnings() {
+  for (const f of fallEvents) {
+    if (f.state !== 'aviso' && f.state !== 'caindo') continue;
+    const lx = laneX(f.lane, 0);
+    const by = HORIZON - 46;
+
+    // sacada temporária: aparece no cenário só enquanto o perigo existe
+    ctx.fillStyle = '#7a5c3e';
+    ctx.fillRect(lx - 34, by, 68, 9);
+    ctx.fillStyle = '#5b4128';
+    for (let i = 0; i < 5; i++) ctx.fillRect(lx - 30 + i * 14, by - 13, 3, 13);
+    // morador que empurrou o vaso
+    ctx.fillStyle = 'rgba(25,15,10,.85)';
+    ctx.beginPath(); ctx.ellipse(lx + 18, by - 22, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(lx + 13, by - 16, 10, 13);
+
+    if (f.state === 'aviso') {
+      // placa de aviso piscando (o vaso ainda não caiu — só dá pra fugir da pista)
+      if (Math.floor(time * 8) % 2 === 0) {
+        ctx.fillStyle = '#ff2d2d';
+        ctx.beginPath();
+        ctx.moveTo(lx, by + 24); ctx.lineTo(lx - 15, by + 52); ctx.lineTo(lx + 15, by + 52);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#7a0000'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold 16px 'Press Start 2P', monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('!', lx, by + 47);
+        ctx.textAlign = 'left';
+      }
+      // sombra encolhendo no chão, marcando onde ele vai cair
+      const grow = f.timer / WARN_TIME;
+      ctx.save();
+      ctx.globalAlpha = 0.3 * (1 - grow) + 0.08;
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.ellipse(lx, BASE_Y + 6, 40 * (1 - grow) + 6, 12 * (1 - grow) + 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+function drawFallObject(f) {
+  const lx = laneX(f.lane, 0);
+  if (f.state === 'caindo') {
+    const p = 1 - f.timer / FALL_TIME; // 0 no alto → 1 no chão
+    const topY = HORIZON - 6, groundY = BASE_Y - 6;
+    const y = topY + (groundY - topY) * p;
+    const size = 14 + 24 * p;
+
+    ctx.save();
+    ctx.globalAlpha = 0.2 + 0.4 * p;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(lx, BASE_Y + 6, 34 * p, 10 * p, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(lx, y);
+    ctx.rotate(p * 3.4);
+    ctx.fillStyle = '#c8763e';
+    ctx.beginPath();
+    ctx.moveTo(-size*0.5, -size*0.6); ctx.lineTo(size*0.5, -size*0.6);
+    ctx.lineTo(size*0.36, size*0.5); ctx.lineTo(-size*0.36, size*0.5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#8a4b23'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#a85a2d';
+    ctx.fillRect(-size*0.56, -size*0.68, size*1.12, size*0.14);
+    ctx.strokeStyle = '#2e8b3d'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -size*0.6); ctx.lineTo(-size*0.2, -size*1.1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -size*0.6); ctx.lineTo(size*0.22, -size*1.05); ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = '#3fae52';
+    ctx.beginPath(); ctx.ellipse(-size*0.2, -size*1.15, size*0.18, size*0.1, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(size*0.22, -size*1.1, size*0.18, size*0.1, 0.4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  } else if (f.state === 'estrago') {
+    const p = f.timer / SPLAT_TIME; // 1 → 0 (sumindo aos poucos)
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p);
+    ctx.fillStyle = '#6b4226';
+    ctx.beginPath(); ctx.ellipse(lx, BASE_Y - 4, 30, 9, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#c8763e';
+    for (const [ox, oy, rw, rh] of [[-16,-2,10,6],[10,-6,8,5],[-2,4,7,5],[18,3,6,4]]) {
+      ctx.save(); ctx.translate(lx+ox, BASE_Y+oy); ctx.rotate(ox*0.2);
+      ctx.fillRect(-rw/2, -rh/2, rw, rh); ctx.restore();
+    }
+    ctx.fillStyle = '#3fae52';
+    ctx.beginPath(); ctx.ellipse(lx-8, BASE_Y+2, 6, 3, 0.3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(lx+12, BASE_Y-1, 6, 3, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
 function drawFinish() {
   const d = TRACK_LENGTH - distance;
   if (d > MAX_D || d < -3) return;
@@ -686,6 +822,7 @@ function draw() {
   drawSky();
   drawRoad();
   drawScenery();
+  drawFallWarnings();
   drawFinish();
 
   // moedas e obstáculos juntos, dos mais longe pros mais perto
@@ -696,6 +833,8 @@ function draw() {
   for (const item of itens) {
     if (item.tipo === 'moeda') drawCoin(item.ref); else drawObstacle(item.ref);
   }
+
+  for (const f of fallEvents) drawFallObject(f);
 
   // enquanto invencível, o skatista pisca (some e aparece)
   if (!player.invincible || Math.floor(time * 12) % 2 === 0) drawPlayer();
