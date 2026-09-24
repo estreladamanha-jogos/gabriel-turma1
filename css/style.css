@@ -54,6 +54,21 @@ h2 {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
+.botao {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: var(--destaque);
+  color: #fff;
+  text-decoration: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.botao:hover {
+  opacity: 0.9;
+}
+
 .rodape {
   text-align: center;
   padding: 16px;
