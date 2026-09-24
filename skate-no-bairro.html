@@ -73,11 +73,11 @@
 /* =========================================================
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
-   obstáculos de pista, meteoro que cai do céu (com aviso)
-   e objetivo (chegar ao fim da rua) já funcionam, mas
-   ainda não tem perseguidor nem níveis — isso a turma
-   constrói nas próximas missões, sempre em cima deste
-   código.
+   obstáculos de pista, meteoro que cai do céu (com aviso),
+   um segurança que persegue o skatista e objetivo (chegar
+   ao fim da rua) já funcionam, mas ainda não tem níveis —
+   isso a turma constrói nas próximas missões, sempre em
+   cima deste código.
    ========================================================= */
 
 const canvas = document.getElementById('game');
@@ -115,6 +115,22 @@ const JUMP_CLEAR_H = 50; // altura mínima pra passar por cima de um cone
 const START_LIVES = 3;
 const INVINCIBLE_TIME = 1.5; // segundos piscando depois de tomar um golpe
 let lives = START_LIVES;
+
+// ---------- Segurança que persegue o skatista ----------
+// Ele corre sempre atrás, na mesma pista, seguindo com um pequeno
+// atraso quando o skatista troca de pista. Cada vez que o skatista
+// bate em algo, o segurança se aproxima 60% da distância que falta.
+// A cada segundo sem bater em nada, ele volta a se afastar 5%. Se
+// duas batidas acontecerem muito seguidas (sem tempo dele recuar),
+// a distância cai demais e ele pega o skatista: fim de jogo na hora,
+// mesmo que ainda sobrem corações.
+const GUARD_START_DIST = 16;   // metros de distância (D) no início/reinício
+const GUARD_APPROACH = 0.6;    // se aproxima 60% a cada batida
+const GUARD_RETREAT_RATE = 0.05; // se afasta 5% por segundo
+const GUARD_CATCH_DIST = 3;    // a essa distância, ele já pega o skatista
+const GUARD_MAX_DIST = 40;     // bem longe, quase some de vista
+let guardGap = GUARD_START_DIST;
+let guardLane = 1;
 
 // ---------- Moedas ----------
 let coins = [];
@@ -224,6 +240,10 @@ function update(dt) {
 
   player.lane += (player.targetLane - player.lane) * Math.min(1, dt * 14);
 
+  // segurança: segue a pista do skatista com atraso, e recua 5% por segundo
+  guardLane += (player.lane - guardLane) * Math.min(1, dt * 5);
+  guardGap = Math.min(GUARD_MAX_DIST, guardGap * Math.pow(1 + GUARD_RETREAT_RATE, dt));
+
   if (!player.onGround) {
     player.vy -= GRAVITY * dt;
     player.jumpY += player.vy * dt;
@@ -285,6 +305,15 @@ function updateHearts() {
 }
 
 function loseLife(type) {
+  // o segurança se aproxima 60% a cada batida — duas batidas seguidas
+  // (sem tempo dele recuar) fazem a distância cair demais e ele pega
+  // o skatista na hora, mesmo com corações sobrando.
+  guardGap = Math.max(0.3, guardGap * (1 - GUARD_APPROACH));
+  if (guardGap <= GUARD_CATCH_DIST) {
+    crashGame('guarda');
+    return;
+  }
+
   lives--;
   updateHearts();
   if (lives <= 0) {
@@ -305,6 +334,8 @@ function crashGame(type) {
     ? `Você bateu no caminhão! Moedas: ${coinCount}`
     : type === 'meteoro'
     ? `Um meteoro caiu bem em cima de você! Moedas: ${coinCount}`
+    : type === 'guarda'
+    ? `O segurança te alcançou! Moedas: ${coinCount}`
     : `Você bateu num cone! Moedas: ${coinCount}`;
   document.getElementById('overlay').classList.add('show');
 }
@@ -324,6 +355,8 @@ function restart() {
   spawnTimer = randSpawnGap();
   fallEvents = [];
   fallSpawnTimer = randFallGap();
+  guardGap = GUARD_START_DIST;
+  guardLane = 1;
   document.getElementById('coinVal').textContent = 0;
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('progressIcon').style.left = '0%';
@@ -829,6 +862,81 @@ function drawFallObject(f) {
   }
 }
 
+// ---------- Desenho: segurança que persegue ----------
+// Não usa a perspectiva normal da pista (ele está atrás da câmera):
+// quanto mais perto (guardGap pequeno), maior e mais alto na tela,
+// quase colado no skatista; quanto mais longe, menor e mais pra
+// baixo, como se estivesse ficando pra trás.
+function drawGuard() {
+  const t = guardGap / GUARD_MAX_DIST; // 0 = colado, 1 = bem longe
+  const scale = Math.max(0.28, 1 - t * 0.72);
+  const alpha = 1 - t * 0.35;
+  const x = laneX(guardLane, 0);
+  const y = BASE_Y + (H - BASE_Y - 14) * Math.min(1, t * 1.4);
+  const bob = Math.sin(time * 18) * 3 * scale;
+
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.3;
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(x, y + 10 * scale, 40 * scale, 10 * scale, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y + bob);
+  ctx.scale(scale, scale);
+
+  // pernas correndo
+  const legSwing = Math.sin(time * 14) * 14;
+  ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 15; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-10, -60); ctx.lineTo(-10 - legSwing * 0.5, -6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(10, -60); ctx.lineTo(10 + legSwing * 0.5, -6); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(-10 - legSwing * 0.5, -4, 11, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10 + legSwing * 0.5, -4, 11, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+  // corpo: uniforme escuro com colete refletivo
+  const body = ctx.createLinearGradient(0, -132, 0, -60);
+  body.addColorStop(0, '#2b3a67'); body.addColorStop(1, '#1a2445');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-32, -132, 64, 72, 10); else ctx.rect(-32, -132, 64, 72);
+  ctx.fill();
+  ctx.strokeStyle = '#0d1226'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,210,0,.85)';
+  ctx.fillRect(-30, -128, 60, 10);
+  ctx.fillRect(-30, -96, 60, 8);
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(-16, -108, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#a87900'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  // braços correndo
+  const armSwing = Math.sin(time * 14 + Math.PI) * 16;
+  ctx.strokeStyle = '#2b3a67'; ctx.lineWidth = 13; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-28, -122); ctx.lineTo(-46, -90 + armSwing); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(28, -122); ctx.lineTo(46, -90 - armSwing); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#c68642';
+  ctx.beginPath(); ctx.arc(-46, -90 + armSwing, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(46, -90 - armSwing, 6, 0, Math.PI * 2); ctx.fill();
+
+  // cabeça, cara brava e boné de segurança
+  ctx.fillStyle = '#c68642';
+  ctx.beginPath(); ctx.arc(0, -148, 17, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-9, -151); ctx.lineTo(-2, -148); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9, -151); ctx.lineTo(2, -148); ctx.stroke();
+  ctx.fillStyle = '#1a2445';
+  ctx.beginPath(); ctx.arc(0, -156, 19, Math.PI * 1.02, Math.PI * 1.98); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0d1226'; ctx.fillRect(-19, -158, 38, 5);
+  ctx.fillStyle = '#0d1226'; ctx.fillRect(-18, -150, 36, 8);
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(0, -160, 4, 0, Math.PI * 2); ctx.fill();
+
+  ctx.restore();
+}
+
 function drawFinish() {
   const d = TRACK_LENGTH - distance;
   if (d > MAX_D || d < -3) return;
@@ -951,6 +1059,8 @@ function draw() {
   }
 
   for (const f of fallEvents) drawFallObject(f);
+
+  drawGuard();
 
   // enquanto invencível, o skatista pisca (some e aparece)
   if (!player.invincible || Math.floor(time * 12) % 2 === 0) drawPlayer();
