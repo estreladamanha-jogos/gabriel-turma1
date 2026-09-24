@@ -60,7 +60,7 @@
 
   <canvas id="game" width="900" height="500"></canvas>
 
-  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · viu o aviso ⚠️ lá em cima? troque de pista!</div>
+  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · viu o alvo ⚠️ no chão? corre pra outra pista!</div>
 
   <div id="overlay">
     <h2 id="overlayTitle">🏁 CHEGOU!</h2>
@@ -73,7 +73,7 @@
 /* =========================================================
    SKATE NO BAIRRO — jogo modelo da Aula 5 (corredor de 3
    pistas, visto de trás). Skatista, controle, moedas,
-   obstáculos de pista, vaso que cai de sacada (com aviso)
+   obstáculos de pista, meteoro que cai do céu (com aviso)
    e objetivo (chegar ao fim da rua) já funcionam, mas
    ainda não tem perseguidor nem níveis — isso a turma
    constrói nas próximas missões, sempre em cima deste
@@ -156,20 +156,27 @@ function checaColisao(o) {
   return false;
 }
 
-// ---------- Vaso que cai da sacada ----------
-// Um morador aparece na sacada, o vaso fica 1s "tremendo" (aviso) e
-// depois despenca reto numa pista. Pular não adianta: ele vem de cima
-// e o golpe é checado direto na pista, sem olhar a altura do pulo — só
-// trocar de pista salva. Enquanto o aviso está ativo, a sacada "nasce"
-// no cenário, no alto, bem em cima da pista escolhida, e some no final.
-const WARN_TIME = 1;      // segundos de aviso antes do vaso cair
-const FALL_TIME = 0.4;    // segundos caindo até o chão
-const SPLAT_TIME = 0.6;   // segundos do estrago no chão, antes de sumir
+// ---------- Meteoro que cai do céu ----------
+// Um alvo pisca no CHÃO por 1s (aviso) marcando onde o meteoro vai
+// atingir a pista. Pular não adianta: ele vem de cima e o golpe é
+// checado direto na pista, sem olhar a altura do pulo — só trocar de
+// pista salva. Ao cair, deixa rastro de fogo, sacode a tela e explode
+// com onda de choque, fumaça e cratera.
+const WARN_TIME = 1;      // segundos de aviso antes do meteoro cair
+const FALL_TIME = 0.42;   // segundos caindo até o chão
+const SPLAT_TIME = 0.7;   // segundos da explosão no chão, antes de sumir
+const SHAKE_TIME = 0.25;  // segundos de tremida de tela no impacto
+const FLASH_TIME = 0.12;  // segundos do flash de luz no impacto
 let fallEvents = [];
 let fallSpawnTimer = randFallGap();
+let shakeTimer = 0;
+let flashTimer = 0;
 function randFallGap() { return 4 + Math.random() * 3; } // 4 a 7 segundos
 
 function update_fallEvents(dt) {
+  if (shakeTimer > 0) shakeTimer = Math.max(0, shakeTimer - dt);
+  if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - dt);
+
   fallSpawnTimer -= dt;
   if (fallSpawnTimer <= 0) {
     fallEvents.push({ lane: Math.floor(Math.random() * 3), state: 'aviso', timer: WARN_TIME });
@@ -181,9 +188,11 @@ function update_fallEvents(dt) {
       f.state = 'caindo';
       f.timer = FALL_TIME;
     } else if (f.state === 'caindo' && f.timer <= 0) {
-      if (!player.invincible && Math.abs(player.lane - f.lane) < 0.55) loseLife('vaso');
+      if (!player.invincible && Math.abs(player.lane - f.lane) < 0.55) loseLife('meteoro');
       f.state = 'estrago';
       f.timer = SPLAT_TIME;
+      shakeTimer = SHAKE_TIME;
+      flashTimer = FLASH_TIME;
     } else if (f.state === 'estrago' && f.timer <= 0) {
       f.done = true;
     }
@@ -294,8 +303,8 @@ function crashGame(type) {
   title.style.textShadow = '3px 3px 0 #000, 0 0 16px #ff1a1a';
   document.getElementById('overlayText').textContent = type === 'caminhao'
     ? `Você bateu no caminhão! Moedas: ${coinCount}`
-    : type === 'vaso'
-    ? `Um vaso caiu bem na sua cabeça! Moedas: ${coinCount}`
+    : type === 'meteoro'
+    ? `Um meteoro caiu bem em cima de você! Moedas: ${coinCount}`
     : `Você bateu num cone! Moedas: ${coinCount}`;
   document.getElementById('overlay').classList.add('show');
 }
@@ -627,43 +636,56 @@ function drawObstacle(o) {
   }
 }
 
-// ---------- Desenho: vaso, aviso e sacada ----------
+// ---------- Desenho: meteoro, alvo de aviso e explosão ----------
 function drawFallWarnings() {
   for (const f of fallEvents) {
-    if (f.state !== 'aviso' && f.state !== 'caindo') continue;
+    if (f.state !== 'aviso') continue;
     const lx = laneX(f.lane, 0);
-    const by = HORIZON - 46;
+    const p = f.timer / WARN_TIME; // 1 no início → 0 quando vai cair
+    const pulso = 0.5 + 0.5 * Math.sin(time * 14);
 
-    // sacada temporária: aparece no cenário só enquanto o perigo existe
-    ctx.fillStyle = '#7a5c3e';
-    ctx.fillRect(lx - 34, by, 68, 9);
-    ctx.fillStyle = '#5b4128';
-    for (let i = 0; i < 5; i++) ctx.fillRect(lx - 30 + i * 14, by - 13, 3, 13);
-    // morador que empurrou o vaso
-    ctx.fillStyle = 'rgba(25,15,10,.85)';
-    ctx.beginPath(); ctx.ellipse(lx + 18, by - 22, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(lx + 13, by - 16, 10, 13);
+    // brilho avermelhado no céu, de onde o meteoro está vindo
+    ctx.save();
+    ctx.globalAlpha = 0.5 * (1 - p);
+    const skyGlow = ctx.createRadialGradient(lx, HORIZON - 10, 2, lx, HORIZON - 10, 40);
+    skyGlow.addColorStop(0, '#ffb347'); skyGlow.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = skyGlow;
+    ctx.beginPath(); ctx.arc(lx, HORIZON - 10, 40, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
 
-    if (f.state === 'aviso') {
-      // placa de aviso piscando (o vaso ainda não caiu — só dá pra fugir da pista)
-      if (Math.floor(time * 8) % 2 === 0) {
-        ctx.fillStyle = '#ff2d2d';
-        ctx.beginPath();
-        ctx.moveTo(lx, by + 24); ctx.lineTo(lx - 15, by + 52); ctx.lineTo(lx + 15, by + 52);
-        ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = '#7a0000'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold 16px 'Press Start 2P', monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText('!', lx, by + 47);
-        ctx.textAlign = 'left';
-      }
-      // sombra encolhendo no chão, marcando onde ele vai cair
-      const grow = f.timer / WARN_TIME;
+    // alvo piscando NO CHÃO: anéis de mira encolhendo até o ponto de impacto
+    ctx.save();
+    ctx.translate(lx, BASE_Y + 4);
+    ctx.globalAlpha = 0.55 + 0.35 * pulso;
+    const r1 = 46 * p + 8, r2 = 28 * p + 5;
+    ctx.strokeStyle = '#ff2d2d'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, r1, r1 * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, r2, r2 * 0.32, 0, 0, Math.PI * 2); ctx.stroke();
+    // mira em cruz
+    ctx.strokeStyle = '#ff2d2d'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-r1 - 8, 0); ctx.lineTo(-r1 + 6, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(r1 - 6, 0); ctx.lineTo(r1 + 8, 0); ctx.stroke();
+    // mancha de perigo preenchendo o alvo
+    ctx.globalAlpha = 0.25 + 0.15 * pulso;
+    ctx.fillStyle = '#ff2d2d';
+    ctx.beginPath(); ctx.ellipse(0, 0, r2 * 0.7, r2 * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // placa "!" piscando um pouco acima do alvo, sempre visível no chão
+    if (Math.floor(time * 8) % 2 === 0) {
       ctx.save();
-      ctx.globalAlpha = 0.3 * (1 - grow) + 0.08;
-      ctx.fillStyle = '#000';
-      ctx.beginPath(); ctx.ellipse(lx, BASE_Y + 6, 40 * (1 - grow) + 6, 12 * (1 - grow) + 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.translate(lx, BASE_Y - 46);
+      ctx.fillStyle = '#ff2d2d';
+      ctx.beginPath();
+      ctx.moveTo(0, -26); ctx.lineTo(-15, 6); ctx.lineTo(15, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#7a0000'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold 16px 'Press Start 2P', monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('!', 0, 1);
+      ctx.textAlign = 'left';
       ctx.restore();
     }
   }
@@ -671,52 +693,139 @@ function drawFallWarnings() {
 
 function drawFallObject(f) {
   const lx = laneX(f.lane, 0);
+
   if (f.state === 'caindo') {
     const p = 1 - f.timer / FALL_TIME; // 0 no alto → 1 no chão
     const topY = HORIZON - 6, groundY = BASE_Y - 6;
     const y = topY + (groundY - topY) * p;
-    const size = 14 + 24 * p;
+    const size = 10 + 26 * p;
 
+    // sombra no chão, ficando mais forte conforme o meteoro se aproxima
     ctx.save();
-    ctx.globalAlpha = 0.2 + 0.4 * p;
+    ctx.globalAlpha = 0.2 + 0.45 * p;
     ctx.fillStyle = '#000';
     ctx.beginPath(); ctx.ellipse(lx, BASE_Y + 6, 34 * p, 10 * p, 0, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
+    // rastro de fogo, esticado para cima (de onde ele veio)
+    const trail = 30 + 90 * p;
+    const tg = ctx.createLinearGradient(lx, y - trail, lx, y);
+    tg.addColorStop(0, 'rgba(255,200,60,0)');
+    tg.addColorStop(0.5, 'rgba(255,140,30,.55)');
+    tg.addColorStop(1, 'rgba(255,230,120,.95)');
+    ctx.fillStyle = tg;
+    ctx.beginPath();
+    ctx.moveTo(lx - size*0.22, y);
+    ctx.lineTo(lx + size*0.22, y);
+    ctx.lineTo(lx + size*0.06, y - trail);
+    ctx.lineTo(lx - size*0.06, y - trail);
+    ctx.closePath(); ctx.fill();
+
+    // faíscas soltando do rastro
+    for (let i = 0; i < 5; i++) {
+      const sp = hash(f.lane * 97 + i + Math.floor(time * 20));
+      const sy = y - trail * (0.2 + sp * 0.7);
+      const sx = lx + (sp - 0.5) * size * 0.9;
+      ctx.save();
+      ctx.globalAlpha = 0.6 * (1 - sp);
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(sx, sy, 2 + 2 * (1 - sp), 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    // brilho ao redor da rocha
+    ctx.save();
+    const glow = ctx.createRadialGradient(lx, y, size*0.1, lx, y, size*1.4);
+    glow.addColorStop(0, 'rgba(255,200,90,.85)');
+    glow.addColorStop(1, 'rgba(255,140,30,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(lx, y, size*1.4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // núcleo rochoso, girando, com rachaduras incandescentes
     ctx.save();
     ctx.translate(lx, y);
-    ctx.rotate(p * 3.4);
-    ctx.fillStyle = '#c8763e';
+    ctx.rotate(p * 5);
+    ctx.fillStyle = '#4a4038';
     ctx.beginPath();
-    ctx.moveTo(-size*0.5, -size*0.6); ctx.lineTo(size*0.5, -size*0.6);
-    ctx.lineTo(size*0.36, size*0.5); ctx.lineTo(-size*0.36, size*0.5);
+    ctx.moveTo(-size*0.5, -size*0.2);
+    ctx.lineTo(-size*0.18, -size*0.55);
+    ctx.lineTo(size*0.32, -size*0.42);
+    ctx.lineTo(size*0.52, size*0.05);
+    ctx.lineTo(size*0.18, size*0.52);
+    ctx.lineTo(-size*0.34, size*0.4);
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#8a4b23'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#a85a2d';
-    ctx.fillRect(-size*0.56, -size*0.68, size*1.12, size*0.14);
-    ctx.strokeStyle = '#2e8b3d'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(0, -size*0.6); ctx.lineTo(-size*0.2, -size*1.1); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, -size*0.6); ctx.lineTo(size*0.22, -size*1.05); ctx.stroke();
-    ctx.lineCap = 'butt';
-    ctx.fillStyle = '#3fae52';
-    ctx.beginPath(); ctx.ellipse(-size*0.2, -size*1.15, size*0.18, size*0.1, -0.4, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(size*0.22, -size*1.1, size*0.18, size*0.1, 0.4, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#241d18'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = '#ffb347'; ctx.lineWidth = Math.max(1, size*0.06);
+    ctx.beginPath(); ctx.moveTo(-size*0.3, -size*0.1); ctx.lineTo(0, size*0.05); ctx.lineTo(size*0.22, -size*0.15); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-size*0.1, size*0.1); ctx.lineTo(size*0.15, size*0.3); ctx.stroke();
     ctx.restore();
   } else if (f.state === 'estrago') {
-    const p = f.timer / SPLAT_TIME; // 1 → 0 (sumindo aos poucos)
+    const p = 1 - f.timer / SPLAT_TIME; // 0 no impacto → 1 no fim
+
+    // cratera escura no chão (fica até o final, depois some com tudo)
     ctx.save();
-    ctx.globalAlpha = Math.max(0, p);
-    ctx.fillStyle = '#6b4226';
-    ctx.beginPath(); ctx.ellipse(lx, BASE_Y - 4, 30, 9, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#c8763e';
-    for (const [ox, oy, rw, rh] of [[-16,-2,10,6],[10,-6,8,5],[-2,4,7,5],[18,3,6,4]]) {
-      ctx.save(); ctx.translate(lx+ox, BASE_Y+oy); ctx.rotate(ox*0.2);
-      ctx.fillRect(-rw/2, -rh/2, rw, rh); ctx.restore();
-    }
-    ctx.fillStyle = '#3fae52';
-    ctx.beginPath(); ctx.ellipse(lx-8, BASE_Y+2, 6, 3, 0.3, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(lx+12, BASE_Y-1, 6, 3, -0.4, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = Math.max(0, 1 - p) * 0.9;
+    ctx.fillStyle = '#241a14';
+    ctx.beginPath(); ctx.ellipse(lx, BASE_Y - 2, 34, 10, 0, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#ff6a2e'; ctx.lineWidth = 2;
+    ctx.globalAlpha = Math.max(0, 0.6 - p * 0.6);
+    ctx.beginPath(); ctx.ellipse(lx, BASE_Y - 2, 34, 10, 0, 0, Math.PI*2); ctx.stroke();
     ctx.restore();
+
+    // onda de choque se expandindo e sumindo
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 0.7 - p * 0.7);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3;
+    const rw = 10 + p * 70;
+    ctx.beginPath(); ctx.ellipse(lx, BASE_Y - 2, rw, rw * 0.3, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+
+    // labaredas subindo do centro, encolhendo com o tempo
+    if (p < 0.6) {
+      const fa = Math.max(0, 1 - p / 0.6);
+      const flameH = 46 * fa;
+      for (const [fx, fs] of [[-14, 0.8], [0, 1], [14, 0.75]]) {
+        ctx.save();
+        ctx.globalAlpha = fa;
+        const fg = ctx.createLinearGradient(lx+fx, BASE_Y - flameH*fs, lx+fx, BASE_Y);
+        fg.addColorStop(0, 'rgba(255,210,90,0)');
+        fg.addColorStop(0.5, 'rgba(255,150,40,.9)');
+        fg.addColorStop(1, 'rgba(255,60,20,.95)');
+        ctx.fillStyle = fg;
+        ctx.beginPath();
+        ctx.moveTo(lx+fx, BASE_Y);
+        ctx.quadraticCurveTo(lx+fx - 8*fs, BASE_Y - flameH*fs*0.5, lx+fx, BASE_Y - flameH*fs);
+        ctx.quadraticCurveTo(lx+fx + 8*fs, BASE_Y - flameH*fs*0.5, lx+fx, BASE_Y);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // fumaça subindo e se dissipando
+    for (let i = 0; i < 4; i++) {
+      const sp = hash(f.lane * 53 + i);
+      const rise = 14 + p * 60 * (0.6 + sp * 0.8);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 0.4 - p * 0.4) * (0.5 + sp * 0.5);
+      ctx.fillStyle = '#3a3a3a';
+      ctx.beginPath();
+      ctx.arc(lx + (sp - 0.5) * 40, BASE_Y - rise, 8 + p * 14, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // estilhaços de rocha voando e caindo
+    for (const [ox, spd] of [[-18, 1], [12, 0.7], [-4, 1.3], [22, 0.9]]) {
+      const fy = -30 * spd * (1 - p) + p * p * 40;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - p);
+      ctx.translate(lx + ox * (0.4 + p), BASE_Y - 6 + fy);
+      ctx.rotate(p * 6);
+      ctx.fillStyle = '#4a4038';
+      ctx.fillRect(-4, -3, 8, 6);
+      ctx.restore();
+    }
   }
 }
 
@@ -819,6 +928,13 @@ function drawPlayer() {
 
 // ---------- Desenho: tudo junto ----------
 function draw() {
+  ctx.save();
+  // tremida de tela no impacto do meteoro
+  if (shakeTimer > 0) {
+    const mag = 7 * (shakeTimer / SHAKE_TIME);
+    ctx.translate((Math.random() - 0.5) * mag, (Math.random() - 0.5) * mag);
+  }
+
   drawSky();
   drawRoad();
   drawScenery();
@@ -838,6 +954,17 @@ function draw() {
 
   // enquanto invencível, o skatista pisca (some e aparece)
   if (!player.invincible || Math.floor(time * 12) % 2 === 0) drawPlayer();
+
+  // flash de luz no instante do impacto
+  if (flashTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = (flashTimer / FLASH_TIME) * 0.55;
+    ctx.fillStyle = '#fff3d6';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  ctx.restore();
 }
 
 // ---------- Loop principal ----------
