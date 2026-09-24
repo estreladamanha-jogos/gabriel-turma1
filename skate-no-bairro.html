@@ -129,8 +129,8 @@ buildCoins();
 // cacamba: grande, mortal, nunca dá pra passar (nem pulando)
 const SPAWN_AHEAD = 92;         // metros à frente de onde o obstáculo nasce
 let obstacles = [];
-let spawnTimer = 2;
-function randSpawnGap() { return 2 + Math.random(); } // 2 a 3 segundos
+let spawnTimer = 1.5;
+function randSpawnGap() { return 1 + Math.random(); } // 1 a 2 segundos
 
 function spawnObstacle() {
   const lane = Math.floor(Math.random() * 3);
