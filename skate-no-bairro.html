@@ -52,6 +52,7 @@
 
 <div id="wrap">
   <div id="hud">
+    <div class="stat" id="heartsVal">❤️❤️❤️</div>
     <div class="stat">🪙 <b id="coinVal">0</b></div>
     <div id="progress"><div id="progressFill"></div><div id="progressIcon">🛹</div></div>
     <div class="stat">🏁 <b id="pctVal">0</b>%</div>
@@ -59,7 +60,7 @@
 
   <canvas id="game" width="900" height="500"></canvas>
 
-  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · pule os cones, desvie das caçambas!</div>
+  <div id="hint">← → trocar de pista · ↑ ou ESPAÇO pular · pule os cones, desvie do caminhão!</div>
 
   <div id="overlay">
     <h2 id="overlayTitle">🏁 CHEGOU!</h2>
@@ -106,10 +107,13 @@ function laneX(l, d) { return W/2 + (l-1) * LANE_W * sc(d); }
 function hash(n) { const x = Math.sin(n*127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
 // ---------- Skatista ----------
-const player = { lane: 1, targetLane: 1, jumpY: 0, vy: 0, onGround: true };
+const player = { lane: 1, targetLane: 1, jumpY: 0, vy: 0, onGround: true, invincible: false, invincibleTimer: 0 };
 const GRAVITY = 2300;
 const JUMP_SPEED = 800;
-const JUMP_CLEAR_H = 34; // altura mínima pra passar por cima de um cone
+const JUMP_CLEAR_H = 50; // altura mínima pra passar por cima de um cone
+const START_LIVES = 3;
+const INVINCIBLE_TIME = 1.5; // segundos piscando depois de tomar um golpe
+let lives = START_LIVES;
 
 // ---------- Moedas ----------
 let coins = [];
@@ -125,8 +129,9 @@ function buildCoins() {
 buildCoins();
 
 // ---------- Obstáculos ----------
-// cone: pequeno, dá pra pular por cima
-// cacamba: grande, mortal, nunca dá pra passar (nem pulando)
+// cone: quase do tamanho do skatista, mas dá pra pular por cima
+// caminhao: vermelho, maior que o skatista, ocupa só a própria pista
+// e é impossível de passar (nem pulando) — tira 1 coração se bater.
 const SPAWN_AHEAD = 92;         // metros à frente de onde o obstáculo nasce
 let obstacles = [];
 let spawnTimer = 1.5;
@@ -134,7 +139,7 @@ function randSpawnGap() { return 1 + Math.random(); } // 1 a 2 segundos
 
 function spawnObstacle() {
   const lane = Math.floor(Math.random() * 3);
-  const type = Math.random() < 0.5 ? 'cone' : 'cacamba';
+  const type = Math.random() < 0.5 ? 'cone' : 'caminhao';
   // como só nasce 1 obstáculo por vez, sempre sobram 2 pistas livres
   // naquela distância — as 3 pistas nunca ficam bloqueadas juntas.
   obstacles.push({ d: distance + SPAWN_AHEAD, lane, type, hit: false });
@@ -180,6 +185,11 @@ function update(dt) {
     if (player.jumpY <= 0) { player.jumpY = 0; player.vy = 0; player.onGround = true; }
   }
 
+  if (player.invincible) {
+    player.invincibleTimer -= dt;
+    if (player.invincibleTimer <= 0) { player.invincible = false; player.invincibleTimer = 0; }
+  }
+
   for (const c of coins) {
     if (c.taken) continue;
     const d = c.d - distance;
@@ -199,7 +209,7 @@ function update(dt) {
     if (o.hit) continue;
     if (checaColisao(o)) {
       o.hit = true;
-      crashGame(o.type);
+      if (!player.invincible) loseLife(o.type);
       break;
     }
   }
@@ -222,14 +232,29 @@ function winGame() {
   document.getElementById('overlay').classList.add('show');
 }
 
+function updateHearts() {
+  document.getElementById('heartsVal').textContent = '❤️'.repeat(Math.max(0, lives)) + '🖤'.repeat(START_LIVES - Math.max(0, lives));
+}
+
+function loseLife(type) {
+  lives--;
+  updateHearts();
+  if (lives <= 0) {
+    crashGame(type);
+  } else {
+    player.invincible = true;
+    player.invincibleTimer = INVINCIBLE_TIME;
+  }
+}
+
 function crashGame(type) {
   gameOver = true;
   const title = document.getElementById('overlayTitle');
   title.textContent = 'GAME OVER';
   title.style.color = '#ff1a1a';
   title.style.textShadow = '3px 3px 0 #000, 0 0 16px #ff1a1a';
-  document.getElementById('overlayText').textContent = type === 'cacamba'
-    ? `Você bateu numa caçamba! Moedas: ${coinCount}`
+  document.getElementById('overlayText').textContent = type === 'caminhao'
+    ? `Você bateu no caminhão! Moedas: ${coinCount}`
     : `Você bateu num cone! Moedas: ${coinCount}`;
   document.getElementById('overlay').classList.add('show');
 }
@@ -239,8 +264,11 @@ function restart() {
   distance = 0; time = 0;
   coinCount = 0;
   gameOver = false;
+  lives = START_LIVES;
+  updateHearts();
   player.lane = player.targetLane = 1;
   player.jumpY = 0; player.vy = 0; player.onGround = true;
+  player.invincible = false; player.invincibleTimer = 0;
   buildCoins();
   obstacles = [];
   spawnTimer = randSpawnGap();
@@ -469,7 +497,8 @@ function drawObstacle(o) {
   const s = sc(d), x = laneX(o.lane, d), y = gy(d);
 
   if (o.type === 'cone') {
-    const h = 40*s, w = 24*s;
+    // quase metade do tamanho do skatista, mas dá pra pular por cima
+    const h = 88*s, w = 46*s;
     ctx.fillStyle = '#ff6a00';
     ctx.beginPath();
     ctx.moveTo(x, y - h);
@@ -478,29 +507,62 @@ function drawObstacle(o) {
     ctx.closePath(); ctx.fill();
     ctx.strokeStyle = '#a83e00'; ctx.lineWidth = Math.max(1, 2*s); ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.fillRect(x - w*0.32, y - h*0.5, w*0.64, h*0.14);
+    ctx.fillRect(x - w*0.34, y - h*0.62, w*0.68, h*0.11);
+    ctx.fillRect(x - w*0.26, y - h*0.32, w*0.52, h*0.1);
     ctx.fillStyle = '#8a3d00';
     ctx.fillRect(x - w*0.65, y - 5*s, w*1.3, 5*s);
   } else {
-    const w = 90*s, h = 62*s;
-    const g = ctx.createLinearGradient(x - w/2, y - h, x + w/2, y);
-    g.addColorStop(0, '#8a9aa4'); g.addColorStop(1, '#454e56');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - w/2, y - h, w, h);
-    ctx.fillStyle = 'rgba(0,0,0,.28)';
-    ctx.fillRect(x - w/2, y - h*0.32, w, h*0.32);
-    ctx.strokeStyle = '#22262a'; ctx.lineWidth = Math.max(1, 3*s);
-    ctx.strokeRect(x - w/2, y - h, w, h);
-    // faixa de perigo amarelo/preto
-    ctx.save();
-    ctx.beginPath(); ctx.rect(x - w/2, y - h*0.7, w, h*0.16); ctx.clip();
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - w/2, y - h*0.7, w, h*0.16);
+    // caminhão vermelho: maior que o skatista, fica só na própria pista,
+    // não dá pra passar de jeito nenhum (nem pulando).
+    const w = 150*s, h = 175*s;
+    const cabinW = w*0.34;
+
+    // rodas
     ctx.fillStyle = '#1a1a1a';
+    const wheelR = 15*s;
+    for (const wx of [x - w/2 + cabinW*0.6, x - 6*s, x + w*0.18]) {
+      ctx.beginPath(); ctx.arc(wx, y - wheelR*0.6, wheelR, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle = '#555';
+    for (const wx of [x - w/2 + cabinW*0.6, x - 6*s, x + w*0.18]) {
+      ctx.beginPath(); ctx.arc(wx, y - wheelR*0.6, wheelR*0.4, 0, Math.PI*2); ctx.fill();
+    }
+
+    // caçamba (baú) vermelha
+    const boxX = x - w/2 + cabinW, boxW = w - cabinW;
+    const g = ctx.createLinearGradient(boxX, y - h, boxX + boxW, y);
+    g.addColorStop(0, '#ff5a4d'); g.addColorStop(1, '#c81e1e');
+    ctx.fillStyle = g;
+    ctx.fillRect(boxX, y - h, boxW, h*0.82);
+    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 3*s);
+    ctx.strokeRect(boxX, y - h, boxW, h*0.82);
+    // frisos do baú
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = Math.max(1, 2*s);
+    for (let i = 1; i < 4; i++) {
+      const lx = boxX + (boxW/4)*i;
+      ctx.beginPath(); ctx.moveTo(lx, y - h); ctx.lineTo(lx, y - h*0.18); ctx.stroke();
+    }
+
+    // cabine
+    const cabX = x - w/2;
+    const cg = ctx.createLinearGradient(cabX, y - h*0.62, cabX + cabinW, y);
+    cg.addColorStop(0, '#ff8f80'); cg.addColorStop(1, '#e02e2e');
+    ctx.fillStyle = cg;
+    ctx.fillRect(cabX, y - h*0.62, cabinW, h*0.44);
+    ctx.strokeStyle = '#7a0f0f'; ctx.lineWidth = Math.max(1, 3*s);
+    ctx.strokeRect(cabX, y - h*0.62, cabinW, h*0.44);
+    // para-brisa
+    ctx.fillStyle = '#bfe8ff';
+    ctx.fillRect(cabX + cabinW*0.15, y - h*0.58, cabinW*0.7, h*0.16);
+    // faixa de perigo amarelo/preto embaixo do baú
+    ctx.save();
+    ctx.beginPath(); ctx.rect(boxX, y - h*0.22, boxW, h*0.1); ctx.clip();
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(boxX, y - h*0.22, boxW, h*0.1);
     const stripe = 10*s;
-    for (let sx = -w/2 - h; sx < w/2 + h; sx += stripe*2) {
+    for (let sx = -h; sx < boxW + h; sx += stripe*2) {
       poly([
-        [x+sx, y-h*0.54], [x+sx+stripe, y-h*0.54],
-        [x+sx+stripe+h*0.16, y-h*0.7], [x+sx+h*0.16, y-h*0.7]
+        [boxX+sx, y-h*0.12], [boxX+sx+stripe, y-h*0.12],
+        [boxX+sx+stripe+h*0.1, y-h*0.22], [boxX+sx+h*0.1, y-h*0.22]
       ], '#1a1a1a');
     }
     ctx.restore();
@@ -620,7 +682,8 @@ function draw() {
     if (item.tipo === 'moeda') drawCoin(item.ref); else drawObstacle(item.ref);
   }
 
-  drawPlayer();
+  // enquanto invencível, o skatista pisca (some e aparece)
+  if (!player.invincible || Math.floor(time * 12) % 2 === 0) drawPlayer();
 }
 
 // ---------- Loop principal ----------
