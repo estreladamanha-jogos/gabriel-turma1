@@ -1,0 +1,62 @@
+/* Cores principais */
+:root {
+  --fundo: #f4f6fb;
+  --texto: #1f2937;
+  --destaque: #4f46e5;
+  --cartao: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  background: var(--fundo);
+  color: var(--texto);
+  line-height: 1.5;
+}
+
+.topo {
+  background: var(--destaque);
+  color: #fff;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.conteudo {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+section {
+  margin-bottom: 32px;
+}
+
+h2 {
+  margin-bottom: 12px;
+}
+
+.lista {
+  list-style: none;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.cartao {
+  background: var(--cartao);
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.rodape {
+  text-align: center;
+  padding: 16px;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
