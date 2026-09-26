@@ -111,6 +111,7 @@ const MUNDO_M = 250;               // metros por mundo (referência do tamanho d
 const WORLD_BOUNDS = [250, 500, 750, 1000];   // metros onde aparece o portal de cada mundo
 const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 'ESPAÇO PROFUNDO'];
 const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀'];
+const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55];   // mundo 4 cai bem mais rápido que o mundo 1
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -184,8 +185,9 @@ function gerarAmbiente(w) {
     for (let i = 0; i < 34; i++) arr.push({ tp: 'neve', x: rnd(0, W), y: rnd(0, H), r: rnd(1.2, 3.2), vy: rnd(20, 55), vx: rnd(-14, 14), fase: rnd(0, 6.28) });
   } else if (w === 2) { // vulcão: brasas e cinzas
     for (let i = 0; i < 26; i++) arr.push({ tp: 'brasa', x: rnd(0, W), y: rnd(0, H), r: rnd(1.4, 3.4), vy: rnd(-70, -30), vx: rnd(-10, 10), fase: rnd(0, 6.28) });
-  } else { // espaço: estrelas cadentes/poeira
+  } else { // espaço: estrelas cadentes/poeira + foguete cruzando ao fundo
     for (let i = 0; i < 30; i++) arr.push({ tp: 'poeira', x: rnd(0, W), y: rnd(0, H), r: rnd(.8, 2.2), fase: rnd(0, 6.28) });
+    arr.push({ tp: 'foguete_bg', x: rnd(0, W), y: rnd(80, H - 80), vx: rnd(24, 40) * (Math.random() < .5 ? 1 : -1), vy: rnd(-8, 8), fase: rnd(0, 6.28) });
   }
   return arr;
 }
@@ -194,22 +196,22 @@ function gerarDecor(w) {
   // camadas de fundo (parallax): far, mid, floor, near — recriadas a cada troca de mundo
   const far = [], mid = [], floor = [], near = [];
   if (w === 0) {
-    // floresta: árvores gigantes distantes, árvores médias com copa detalhada,
+    // floresta: árvores gigantes ancoradas nos cantos da tela (com tronco e copa), árvores médias,
     // vegetação rasteira (samambaias, flores, cogumelos pequenos) e folhas voando na frente
-    for (let i = 0; i < 9; i++) far.push({ x: (i * 71 + 30) % (W + 60) - 30, seed: rnd(0, 1), h: rnd(140, 230), wgt: rnd(38, 58), tronco: rnd(10, 16) });
-    for (let i = 0; i < 7; i++) mid.push({ x: (i * 97 + 15) % (W + 80) - 40, seed: rnd(0, 1), h: rnd(90, 150), wgt: rnd(26, 40), tronco: rnd(7, 11) });
+    for (let i = 0; i < 9; i++) { const esq = i % 2 === 0; far.push({ x: esq ? rnd(-35, 45) : rnd(W - 45, W + 35), seed: rnd(0, 1), h: rnd(175, 265), wgt: rnd(52, 76), tronco: rnd(13, 19) }); }
+    for (let i = 0; i < 7; i++) { const esq = i % 2 === 0; const x = i < 5 ? (esq ? rnd(-10, 65) : rnd(W - 65, W + 10)) : rnd(70, W - 70); mid.push({ x, seed: rnd(0, 1), h: rnd(100, 160), wgt: rnd(30, 46), tronco: rnd(8, 12) }); }
     for (let i = 0; i < 16; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 3)), s: rnd(.7, 1.3), fase: rnd(0, 6.28) });
     for (let i = 0; i < 10; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1), s: rnd(.6, 1.3) });
   } else if (w === 1) {
-    // geleira: montanhas de gelo distantes, blocos/geleiras médias, banco de neve/pedras no chão, gelo picado na frente
+    // geleira: icebergs gigantes e recortados ao fundo, blocos de gelo médios, banco de neve/pedras no chão, gelo picado na frente
     for (let i = 0; i < 6; i++) far.push({ x: (i * 110 + 20) % (W + 100) - 50, seed: rnd(0, 1), h: rnd(120, 200), wgt: rnd(70, 110) });
     for (let i = 0; i < 8; i++) mid.push({ x: (i * 80 + 10) % (W + 70) - 35, seed: rnd(0, 1), h: rnd(60, 120), wgt: rnd(30, 50) });
     for (let i = 0; i < 14; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 2)), s: rnd(.6, 1.2), fase: rnd(0, 6.28) });
     for (let i = 0; i < 14; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1), s: rnd(.5, 1.2) });
   } else if (w === 2) {
-    // vulcão: cones vulcânicos com fumaça ao fundo, rochas com veios de lava no meio, chão rachado com brilho, cinzas na frente
-    for (let i = 0; i < 5; i++) far.push({ x: (i * 130 + 25) % (W + 120) - 60, seed: rnd(0, 1), h: rnd(150, 240), wgt: rnd(90, 130) });
-    for (let i = 0; i < 6; i++) mid.push({ x: (i * 95 + 10) % (W + 80) - 40, seed: rnd(0, 1), h: rnd(70, 130), wgt: rnd(40, 60) });
+    // vulcão: paredes de rocha nas duas laterais formando uma garganta (sensação de cair DENTRO do vulcão), veios de lava, chão rachado, cinzas na frente
+    for (let i = 0; i < 6; i++) { const esq = i % 2 === 0; far.push({ x: esq ? rnd(-50, 35) : rnd(W - 35, W + 50), seed: rnd(0, 1), h: rnd(230, 330), wgt: rnd(130, 175) }); }
+    for (let i = 0; i < 7; i++) { const esq = i % 2 === 0; mid.push({ x: esq ? rnd(-15, 60) : rnd(W - 60, W + 15), seed: rnd(0, 1), h: rnd(150, 220), wgt: rnd(70, 100) }); }
     for (let i = 0; i < 10; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 2)), s: rnd(.7, 1.3), fase: rnd(0, 6.28) });
     for (let i = 0; i < 8; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1), s: rnd(.7, 1.4) });
   } else {
@@ -283,35 +285,39 @@ function criarObstaculo() {
 }
 function spawnFloresta() {
   const r = Math.random();
-  if (r < .22) obst.push({ tp: 'tronco', x: rnd(60, W - 60), y: H + 50, w: rnd(70, 100), h: rnd(34, 44), rot: rnd(-.2, .2) });
-  else if (r < .4) obst.push({ tp: 'pedra_f', x: rnd(50, W - 50), y: H + 40, w: rnd(46, 76), h: rnd(38, 54) });
-  else if (r < .58) obst.push({ tp: 'cogumelo', x: rnd(60, W - 60), y: H + 50, w: rnd(60, 90), h: rnd(50, 70) });
-  else if (r < .8) obst.push({ tp: 'abelha', x: rnd(0, 1) < .5 ? -20 : W + 20, y: rnd(120, 420), w: 26, h: 20, vx: rnd(90, 140) * (Math.random() < .5 ? 1 : -1), fase: rnd(0, 6.28) });
-  else obst.push({ tp: 'cipo', x: rnd(60, W - 60), y: -20, w: 14, h: rnd(90, 160), balan: rnd(0, 6.28), preso: true });
+  if (r < .18) obst.push({ tp: 'tronco', x: rnd(60, W - 60), y: H + 50, w: rnd(70, 100), h: rnd(34, 44), rot: rnd(-.2, .2) });
+  else if (r < .34) obst.push({ tp: 'pedra_f', x: rnd(50, W - 50), y: H + 40, w: rnd(46, 76), h: rnd(38, 54) });
+  else if (r < .5) obst.push({ tp: 'cogumelo', x: rnd(60, W - 60), y: H + 50, w: rnd(60, 90), h: rnd(50, 70) });
+  else if (r < .7) obst.push({ tp: 'abelha', x: rnd(0, 1) < .5 ? -20 : W + 20, y: rnd(120, 420), w: 26, h: 20, vx: rnd(90, 140) * (Math.random() < .5 ? 1 : -1), fase: rnd(0, 6.28) });
+  else if (r < .85) obst.push({ tp: 'cipo', x: rnd(60, W - 60), y: -20, w: 14, h: rnd(90, 160), balan: rnd(0, 6.28), preso: true });
+  else obst.push({ tp: 'teia', x: W / 2, y: H + 60, gapOff: rnd(-120, 120), gapW: rnd(70, 100) }); // teia de aranha gigante — obstáculo com um vão pra passar
 }
 function spawnGeleira() {
   const r = Math.random();
-  if (r < .28) obst.push({ tp: 'estalactite', x: rnd(40, W - 40), y: -30, w: rnd(26, 40), h: rnd(60, 100), preso: true });
-  else if (r < .5) obst.push({ tp: 'bloco_gelo', x: rnd(50, W - 50), y: H + 40, w: rnd(50, 78), h: rnd(46, 64), rotV: rnd(-1, 1) });
-  else if (r < .7) obst.push({ tp: 'cristal_gelo', x: rnd(50, W - 50), y: H + 40, w: rnd(30, 44), h: rnd(56, 76) });
-  else if (r < .88) obst.push({ tp: 'pinguim', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(140, 440), w: 24, h: 30, vx: rnd(100, 150) * (Math.random() < .5 ? 1 : -1) });
-  else obst.push({ tp: 'nevasca', x: W / 2, y: rnd(120, 420), w: W, h: rnd(60, 100), fase: 0, dur: rnd(1.4, 2.2) });
+  if (r < .24) obst.push({ tp: 'estalactite', x: rnd(40, W - 40), y: -30, w: rnd(26, 40), h: rnd(60, 100), preso: true });
+  else if (r < .44) obst.push({ tp: 'bloco_gelo', x: rnd(50, W - 50), y: H + 40, w: rnd(50, 78), h: rnd(46, 64), rotV: rnd(-1, 1) });
+  else if (r < .62) obst.push({ tp: 'cristal_gelo', x: rnd(50, W - 50), y: H + 40, w: rnd(30, 44), h: rnd(56, 76) });
+  else if (r < .78) obst.push({ tp: 'pinguim', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(140, 440), w: 24, h: 30, vx: rnd(100, 150) * (Math.random() < .5 ? 1 : -1) });
+  else if (r < .88) obst.push({ tp: 'nevasca', x: W / 2, y: rnd(120, 420), w: W, h: rnd(60, 100), fase: 0, dur: rnd(1.4, 2.2) });
+  else obst.push({ tp: 'avalanche', x: W / 2, y: H + 70, w: rnd(150, 200), h: rnd(90, 120), fase: rnd(0, 6.28) }); // avalanche de neve varrendo a tela
 }
 function spawnVulcao() {
   const r = Math.random();
-  if (r < .24) obst.push({ tp: 'bola_fogo', x: rnd(50, W - 50), y: H + 30, w: 30, h: 30, vyMul: rnd(1.2, 1.6) });
-  else if (r < .46) obst.push({ tp: 'rocha_v', x: rnd(50, W - 50), y: H + 40, w: rnd(50, 84), h: rnd(42, 60) });
-  else if (r < .64) obst.push({ tp: 'jato_lava', x: rnd(60, W - 60), y: H + 10, w: rnd(34, 50), h: 10, fase: 0, dur: rnd(1.2, 1.8), ativo: false, t0: rnd(.2, .8) });
-  else if (r < .82) obst.push({ tp: 'meteoro_v', x: rnd(50, W - 50), y: -30, w: rnd(30, 46), h: rnd(30, 46), rot: 0, rotV: rnd(2, 5) });
-  else obst.push({ tp: 'criatura_magma', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(150, 440), w: 34, h: 28, vx: rnd(80, 120) * (Math.random() < .5 ? 1 : -1), fase: rnd(0, 6.28) });
+  if (r < .2) obst.push({ tp: 'bola_fogo', x: rnd(50, W - 50), y: H + 30, w: 30, h: 30, vyMul: rnd(1.2, 1.6) });
+  else if (r < .4) obst.push({ tp: 'rocha_v', x: rnd(50, W - 50), y: H + 40, w: rnd(50, 84), h: rnd(42, 60) });
+  else if (r < .56) obst.push({ tp: 'jato_lava', x: rnd(60, W - 60), y: H + 10, w: rnd(34, 50), h: 10, fase: 0, dur: rnd(1.2, 1.8), ativo: false, t0: rnd(.2, .8) });
+  else if (r < .74) obst.push({ tp: 'meteoro_v', x: rnd(50, W - 50), y: -30, w: rnd(30, 46), h: rnd(30, 46), rot: 0, rotV: rnd(2, 5) });
+  else if (r < .88) obst.push({ tp: 'criatura_magma', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(150, 440), w: 34, h: 28, vx: rnd(80, 120) * (Math.random() < .5 ? 1 : -1), fase: rnd(0, 6.28) });
+  else obst.push({ tp: 'bolha_gas', x: rnd(60, W - 60), y: H + 40, r: 6, rMax: rnd(26, 38), fase: 0, dur: rnd(1.6, 2.4) }); // bolha de gás vulcânico que cresce e estoura
 }
 function spawnEspaco() {
   const r = Math.random();
-  if (r < .26) obst.push({ tp: 'meteoro_e', x: rnd(40, W - 40), y: H + 40, w: rnd(34, 58), h: rnd(34, 58), rot: 0, rotV: rnd(1.5, 4) });
-  else if (r < .46) obst.push({ tp: 'satelite', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(120, 440), w: 40, h: 26, vx: rnd(90, 130) * (Math.random() < .5 ? 1 : -1) });
-  else if (r < .62) obst.push({ tp: 'fragmento', x: rnd(50, W - 50), y: H + 50, w: rnd(60, 96), h: rnd(50, 78) });
-  else if (r < .8) obst.push({ tp: 'laser_e', x: rnd(60, W - 60), y: -20, w: 12, h: rnd(120, 200), preso: true, fase: rnd(0, 6.28), dur: rnd(1.1, 1.7) });
-  else obst.push({ tp: 'buraco_negro', x: rnd(60, W - 60), y: H + 60, r: rnd(20, 30), rot: 0 });
+  if (r < .2) obst.push({ tp: 'meteoro_e', x: rnd(40, W - 40), y: H + 40, w: rnd(34, 58), h: rnd(34, 58), rot: 0, rotV: rnd(1.5, 4) });
+  else if (r < .36) obst.push({ tp: 'satelite', x: rnd(0, 1) < .5 ? -24 : W + 24, y: rnd(120, 440), w: 40, h: 26, vx: rnd(90, 130) * (Math.random() < .5 ? 1 : -1) });
+  else if (r < .5) obst.push({ tp: 'fragmento', x: rnd(50, W - 50), y: H + 50, w: rnd(60, 96), h: rnd(50, 78) });
+  else if (r < .66) obst.push({ tp: 'laser_e', x: rnd(60, W - 60), y: -20, w: 12, h: rnd(120, 200), preso: true, fase: rnd(0, 6.28), dur: rnd(1.1, 1.7) });
+  else if (r < .8) obst.push({ tp: 'buraco_negro', x: rnd(60, W - 60), y: H + 60, r: rnd(20, 30), rot: 0 });
+  else obst.push({ tp: 'astronauta', x: rnd(0, 1) < .5 ? -30 : W + 30, y: rnd(120, 440), w: 24, h: 34, vx: rnd(45, 75) * (Math.random() < .5 ? 1 : -1), vy: rnd(-18, 18), rot: rnd(0, 6.28), rotV: rnd(-1.2, 1.2) }); // astronauta à deriva
 }
 
 /* ---------- desenho de obstáculos ---------- */
@@ -362,6 +368,27 @@ function desenharObstaculo(o) {
       for (let i = 2; i < seg; i += 2) { const yy = (o.h / seg) * i, xx = Math.sin(o.balan + i * .6) * 14; c.beginPath(); c.ellipse(xx + 8, yy, 6, 3.6, .6, 0, 7); c.fill(); }
       break;
     }
+    case 'teia': {
+      // teia de aranha gigante presa nas laterais, com um vão seguro no meio
+      const gL = o.gapOff - o.gapW / 2, gR = o.gapOff + o.gapW / 2;
+      c.strokeStyle = 'rgba(225,255,230,.6)'; c.lineWidth = 1.3;
+      const desenharLado = (de, ate) => {
+        const anchorY = -44;
+        for (let i = 0; i <= 4; i++) { const x = de + (ate - de) * (i / 4); c.beginPath(); c.moveTo(0, anchorY); c.lineTo(x, 42); c.stroke(); }
+        for (let r = 0; r < 4; r++) {
+          c.beginPath();
+          for (let i = 0; i <= 8; i++) { const k = i / 8, x = de + (ate - de) * k, y = anchorY + (42 - anchorY) * (.35 + r * .18); c.lineTo(x, y + Math.sin(k * Math.PI) * -6); }
+          c.stroke();
+        }
+      };
+      desenharLado(-W / 2 + 6, gL);
+      desenharLado(gR, W / 2 - 6);
+      // aranha pequena perto do vão
+      c.fillStyle = '#1a1a1a'; c.beginPath(); c.ellipse(gL - 14, 8, 6, 4.4, 0, 0, 7); c.fill();
+      c.strokeStyle = '#1a1a1a'; c.lineWidth = 1.2;
+      for (const k of [-1, 1]) { c.beginPath(); c.moveTo(gL - 14, 8); c.lineTo(gL - 14 + k * 9, 2); c.stroke(); c.beginPath(); c.moveTo(gL - 14, 8); c.lineTo(gL - 14 + k * 9, 14); c.stroke(); }
+      break;
+    }
     /* ---- GELEIRA ---- */
     case 'estalactite': {
       const g = c.createLinearGradient(0, 0, 0, o.h); g.addColorStop(0, '#dff5ff'); g.addColorStop(1, '#8fd6f2');
@@ -397,6 +424,19 @@ function desenharObstaculo(o) {
       c.fillStyle = g; c.fillRect(-o.w / 2, -o.h / 2, o.w, o.h);
       break;
     }
+    case 'avalanche': {
+      // bola de neve/gelo gigante rolando e varrendo a tela de um lado a outro
+      c.globalAlpha = .3;
+      for (let i = 3; i >= 1; i--) { c.fillStyle = '#dff0fa'; c.beginPath(); c.ellipse(-i * 16, i * 5, o.w / 2 - i * 10, o.h / 2 - i * 6, 0, 0, 7); c.fill(); }
+      c.globalAlpha = 1;
+      const g = c.createRadialGradient(-o.w * .15, -o.h * .15, 4, 0, 0, o.w / 2);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#a9c8da');
+      c.fillStyle = g; c.strokeStyle = '#7fa7bd'; c.lineWidth = 2.4;
+      c.beginPath(); c.ellipse(0, 0, o.w / 2, o.h / 2, 0, 0, 7); c.fill(); c.stroke();
+      c.fillStyle = 'rgba(120,150,165,.5)';
+      for (const p of [[-.2, -.1], [.15, .12], [-.05, .22]]) { c.beginPath(); c.ellipse(p[0] * o.w, p[1] * o.h, 8, 5, 0, 0, 7); c.fill(); }
+      break;
+    }
     /* ---- VULCÃO ---- */
     case 'bola_fogo': {
       const g = c.createRadialGradient(0, 0, 2, 0, 0, o.w / 2); g.addColorStop(0, '#fff4c2'); g.addColorStop(.5, '#ff8a2e'); g.addColorStop(1, '#c22600');
@@ -426,6 +466,15 @@ function desenharObstaculo(o) {
     case 'criatura_magma': {
       c.fillStyle = '#ff5b1f'; c.beginPath(); c.ellipse(0, Math.sin(o.fase) * 4, 17, 13, 0, 0, 7); c.fill();
       c.fillStyle = '#ffe27a'; c.beginPath(); c.arc(-6, -2, 3, 0, 7); c.arc(6, -2, 3, 0, 7); c.fill();
+      break;
+    }
+    case 'bolha_gas': {
+      // bolha de gás vulcânico que cresce até estourar
+      const g = c.createRadialGradient(-o.r * .3, -o.r * .3, 1, 0, 0, o.r);
+      g.addColorStop(0, 'rgba(255,240,200,.95)'); g.addColorStop(.55, 'rgba(255,150,50,.75)'); g.addColorStop(1, 'rgba(255,80,20,.15)');
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, o.r, 0, 7); c.fill();
+      c.strokeStyle = `rgba(255,220,150,${.4 + Math.sin(t * 8) * .3})`; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, o.r, 0, 7); c.stroke();
+      if (o.fase > o.dur * .6) { c.strokeStyle = '#3a0f06'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(-o.r * .3, -o.r * .4); c.lineTo(0, 0); c.lineTo(o.r * .35, -o.r * .2); c.stroke(); }
       break;
     }
     /* ---- ESPAÇO ---- */
@@ -462,6 +511,19 @@ function desenharObstaculo(o) {
       for (let i = 5; i > 0; i--) { c.globalAlpha = .12 * i; c.strokeStyle = '#b98bff'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, o.r * (i / 3), o.rot + i, o.rot + i + 4); c.stroke(); }
       c.globalAlpha = 1; const g = c.createRadialGradient(0, 0, 1, 0, 0, o.r); g.addColorStop(0, '#000'); g.addColorStop(1, '#2a0a40');
       c.fillStyle = g; c.beginPath(); c.arc(0, 0, o.r, 0, 7); c.fill();
+      break;
+    }
+    case 'astronauta': {
+      // astronauta à deriva, girando lentamente, com cabo preso
+      c.rotate(o.rot);
+      c.strokeStyle = 'rgba(200,210,230,.5)'; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(0, 20); c.quadraticCurveTo(18, 30, 26, 8); c.stroke();
+      c.fillStyle = '#c7c7d1'; c.beginPath(); c.ellipse(0, 8, 10, 15, 0, 0, 7); c.fill();
+      c.fillStyle = '#9a9aa6'; c.fillRect(-7, 16, 14, 8);
+      c.fillStyle = '#e63946'; c.fillRect(-3, -2, 6, 8);
+      c.fillStyle = '#eef0f4'; c.beginPath(); c.arc(0, -12, 10, 0, 7); c.fill();
+      const gg = c.createRadialGradient(-3, -15, 1, 0, -12, 8); gg.addColorStop(0, '#bfe8ff'); gg.addColorStop(1, '#243a52');
+      c.fillStyle = gg; c.beginPath(); c.arc(0, -12, 7, 0, 7); c.fill();
       break;
     }
   }
@@ -522,7 +584,8 @@ function drawPortal(p) {
 function update(dt) {
   if (estado !== 'jogando') return;
   t += dt;
-  vel = BASE_V + Math.min(120, metros() * .03);
+  const alvoVel = BASE_V * WORLD_SPEED_MUL[world] + Math.min(70, metros() * .02);
+  vel += (alvoVel - vel) * Math.min(1, dt * 1.4);
   dist += vel * dt;
   if (invenc > 0) invenc -= dt;
   if (shake > 0) shake -= dt;
@@ -557,13 +620,19 @@ function update(dt) {
   spawnT -= dt;
   if (spawnT <= 0) { criarObstaculo(); spawnT = rnd(.55, .95) * dificuldade + .15; }
   for (const o of obst) {
-    if (o.tp === 'abelha' || o.tp === 'pinguim' || o.tp === 'criatura_magma' || o.tp === 'satelite') { o.x += o.vx * dt; o.fase = (o.fase || 0) + dt * 4; }
-    else if (o.tp === 'cipo' || o.tp === 'estalactite' || o.tp === 'laser_e') { /* preso: acompanha a queda normalmente */ }
+    if (o.tp === 'abelha' || o.tp === 'pinguim' || o.tp === 'criatura_magma' || o.tp === 'satelite' || o.tp === 'astronauta') { o.x += o.vx * dt; o.fase = (o.fase || 0) + dt * 4; }
+    else if (o.tp === 'cipo' || o.tp === 'estalactite' || o.tp === 'laser_e' || o.tp === 'teia') { /* preso: acompanha a queda normalmente */ }
     if (o.tp === 'jato_lava') { o.fase += dt; o.ativo = o.fase > o.t0 && o.fase < o.t0 + o.dur * .6; if (o.fase > o.t0 + o.dur) o.fase = 0; }
     if (o.tp === 'nevasca') o.fase += dt;
     if (o.tp === 'laser_e') o.fase += dt * (1 / o.dur) * 3.4;
     if (o.tp === 'meteoro_v' || o.tp === 'meteoro_e') o.rot += o.rotV * dt;
     if (o.tp === 'buraco_negro') o.rot += dt * 2;
+    if (o.tp === 'astronauta') { o.y += o.vy * dt; o.rot += o.rotV * dt; }
+    if (o.tp === 'avalanche') { o.fase += dt; o.x = W / 2 + Math.sin(t * 1.1 + o.fase) * 150; }
+    if (o.tp === 'bolha_gas') {
+      o.fase += dt; o.r = lerp(6, o.rMax, clamp(o.fase / o.dur, 0, 1));
+      if (o.fase > o.dur && !o.morto) { burst(o.x, o.y, '#ff8a3d', 12, 140); o.morto = true; }
+    }
     const vyMul = o.vyMul || 1;
     o.y -= vel * dt * vyMul;
   }
@@ -585,8 +654,18 @@ function update(dt) {
     if (o.tp === 'jato_lava' && !o.ativo) continue;
     if (o.tp === 'laser_e' && Math.sin(o.fase) <= -0.15) continue;
     if (o.tp === 'nevasca') continue; // decorativo, não causa dano
+    if (o.tp === 'bolha_gas' && o.fase < o.dur * .35) continue; // ainda crescendo, sem perigo
+    if (o.tp === 'teia') {
+      const gapL = o.x + o.gapOff - o.gapW / 2, gapR = o.x + o.gapOff + o.gapW / 2;
+      const bandTop = o.y - 46, bandBot = o.y + 42;
+      const colideEsq = hb.x < gapL && hb.y < bandBot && hb.y + hb.h > bandTop;
+      const colideDir = hb.x + hb.w > gapR && hb.y < bandBot && hb.y + hb.h > bandTop;
+      if ((colideEsq || colideDir) && invenc <= 0) { levarDano(o); break; }
+      continue;
+    }
     let ox, oy, ow, oh;
     if (o.tp === 'buraco_negro') { ox = o.x - o.r; oy = o.y - o.r; ow = oh = o.r * 2; }
+    else if (o.tp === 'bolha_gas') { ox = o.x - o.r; oy = o.y - o.r; ow = oh = o.r * 2; }
     else if (o.tp === 'jato_lava') { ox = o.x - o.w / 2; oy = o.y - 140; ow = o.w; oh = 140; }
     else { ox = o.x - o.w * .42; oy = o.y - o.h * .42; ow = o.w * .84; oh = o.h * .84; }
     if (hb.x < ox + ow && hb.x + hb.w > ox && hb.y < oy + oh && hb.y + hb.h > oy) {
@@ -606,6 +685,11 @@ function update(dt) {
     if (a.tp === 'neve') { a.y += a.vy * dt; a.x += Math.sin(a.fase) * a.vx * dt * .1; if (a.y > H + 6) { a.y = -6; a.x = rnd(0, W); } }
     else if (a.tp === 'brasa') { a.y += a.vy * dt; a.x += Math.sin(a.fase) * 6 * dt; if (a.y < -6) { a.y = H + 6; a.x = rnd(0, W); } }
     else if (a.tp === 'vagalume') { a.x += Math.sin(a.fase * .5) * a.vx * dt * .2; a.y += Math.cos(a.fase * .4) * 10 * dt; }
+    else if (a.tp === 'foguete_bg') {
+      a.x += a.vx * dt; a.y += a.vy * dt;
+      if (a.x < -40) a.x = W + 40; if (a.x > W + 40) a.x = -40;
+      if (a.y < 60) a.y = H - 60; if (a.y > H - 60) a.y = 60;
+    }
   }
 }
 
@@ -683,11 +767,21 @@ function drawGlacier() {
   c.fillStyle = g; c.fillRect(0, 0, W, H);
   // aurora sutil
   c.globalAlpha = .12; c.fillStyle = '#7CFF9E'; c.fillRect(0, 0, W, 90); c.globalAlpha = 1;
-  // montanhas de gelo distantes
+  // icebergs gigantes e recortados ao fundo
   for (let i = 0; i < decor.far.length; i++) {
     const d = decor.far[i], y = py(i, 260, .2, decor.far.length);
     c.fillStyle = '#274a63';
-    c.beginPath(); c.moveTo(d.x - d.wgt, y + d.h); c.lineTo(d.x, y); c.lineTo(d.x + d.wgt, y + d.h); c.closePath(); c.fill();
+    c.beginPath();
+    c.moveTo(d.x - d.wgt, y + d.h);
+    c.lineTo(d.x - d.wgt * .55, y + d.h * .32);
+    c.lineTo(d.x - d.wgt * .18, y + d.h * .55);
+    c.lineTo(d.x, y);
+    c.lineTo(d.x + d.wgt * .22, y + d.h * .5);
+    c.lineTo(d.x + d.wgt * .58, y + d.h * .3);
+    c.lineTo(d.x + d.wgt, y + d.h);
+    c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(190,235,255,.4)'; c.lineWidth = 1.6;
+    c.beginPath(); c.moveTo(d.x - d.wgt * .5, y + d.h * .42); c.lineTo(d.x + d.wgt * .05, y + d.h * .12); c.stroke();
   }
   // blocos médios
   for (let i = 0; i < decor.mid.length; i++) {
@@ -723,7 +817,11 @@ function drawGlacier() {
 function drawVolcano() {
   const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#210805'); g.addColorStop(.5, '#3a0f06'); g.addColorStop(1, '#120302');
   c.fillStyle = g; c.fillRect(0, 0, W, H);
-  // rios de lava (fundo distante) — faixas onduladas pulsantes
+  // brilho do núcleo lá embaixo — reforça a sensação de estar caindo dentro da cratera
+  const nucleo = c.createRadialGradient(W / 2, H + 60, 20, W / 2, H + 60, 320);
+  nucleo.addColorStop(0, 'rgba(255,170,50,.4)'); nucleo.addColorStop(1, 'rgba(255,170,50,0)');
+  c.fillStyle = nucleo; c.fillRect(0, 0, W, H);
+  // paredes de rocha da garganta do vulcão (fundo distante) — faixas onduladas pulsantes
   for (let i = 0; i < decor.far.length; i++) {
     const d = decor.far[i], y = py(i, 300, .18, decor.far.length);
     c.fillStyle = '#1a0a08';
@@ -777,6 +875,15 @@ function drawSpace() {
   for (let i = 0; i < decor.mid.length; i++) {
     const d = decor.mid[i], y = py(i, H / decor.mid.length + 4, .5, decor.mid.length);
     c.globalAlpha = .5 + Math.sin(t * 2 + i) * .3; c.beginPath(); c.arc(d.x, y, 1.3, 0, 7); c.fill();
+  }
+  // foguete cruzando ao fundo
+  for (const a of ambiente) {
+    if (a.tp !== 'foguete_bg') continue;
+    c.save(); c.translate(a.x, a.y); c.rotate(a.vx < 0 ? Math.PI : 0);
+    c.fillStyle = '#e2e6ee'; c.beginPath(); c.moveTo(14, 0); c.lineTo(-10, -6); c.lineTo(-10, 6); c.closePath(); c.fill();
+    c.fillStyle = '#ff5b5b'; c.beginPath(); c.moveTo(14, 0); c.lineTo(6, -3); c.lineTo(6, 3); c.closePath(); c.fill();
+    c.fillStyle = '#ff9a3d'; c.globalAlpha = .8; c.beginPath(); c.moveTo(-10, -4); c.lineTo(-20 - Math.sin(t * 8) * 5, 0); c.lineTo(-10, 4); c.closePath(); c.fill();
+    c.globalAlpha = 1; c.restore();
   }
   // campo de detritos/asteroides próximo — elementos reais de um cinturão espacial
   for (const f of decor.floor) {
