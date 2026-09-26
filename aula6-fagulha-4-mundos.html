@@ -113,7 +113,8 @@ const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 
 const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀'];
 const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55];   // mundo 4 cai bem mais rápido que o mundo 1
 const DASH_DUR = .22, DASH_LOCK = 2.3, DASH_SPEED = 920;      // poder 1: dash (ESPAÇO)
-const SABRE_DUR = 2.6, SABRE_LOCK = 8.5, SABRE_RAIO = 62;     // poder 2: sabre de luz (F)
+const SABRE_DUR = 2.6, SABRE_LOCK = 8.5;                      // poder 2: sabre de luz (F)
+const SABRE_RX = 76, SABRE_RY_BAIXO = 150, SABRE_RY_CIMA = 60; // alcance maior pra baixo — corta o que vem subindo pela tela
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -583,14 +584,29 @@ function drawDashStreak() {
   c.beginPath(); c.moveTo(jog.x - dashDir * comprimento, PY + 12); c.lineTo(jog.x, PY + 12); c.stroke();
 }
 function drawSabre() {
-  const ang = Math.sin(t * 9) * .3 - .95;
-  const hiltX = jog.x + 10, hiltY = PY + 4;
-  const len = 68;
+  // zona de corte: um brilho abrangendo o alcance (maior por baixo, de onde vem tudo)
+  c.save(); c.translate(jog.x, PY + 12);
+  c.globalAlpha = .14 + Math.sin(t * 10) * .04;
+  const zonaG = c.createRadialGradient(0, 40, 4, 0, 40, SABRE_RY_BAIXO);
+  zonaG.addColorStop(0, '#7CFF9E'); zonaG.addColorStop(1, 'rgba(124,255,158,0)');
+  c.fillStyle = zonaG;
+  c.beginPath(); c.ellipse(0, 30, SABRE_RX, SABRE_RY_BAIXO * .7, 0, 0, 7); c.fill();
+  c.globalAlpha = 1;
+  c.restore();
+
+  // o Fagulha gira o sabre em grandes arcos, tipo defletindo tudo ao redor
+  const giro = t * 6.5;
+  const ang = Math.sin(giro) * 1.55 + 1.35; // varre de baixo-esquerda até baixo-direita e volta
+  const hiltX = jog.x, hiltY = PY + 8;
+  const len = 74;
   const tipX = hiltX + Math.cos(ang) * len, tipY = hiltY + Math.sin(ang) * len;
   c.save();
+  // rastro do movimento (arco luminoso)
+  c.strokeStyle = 'rgba(124,255,158,.35)'; c.lineWidth = 20; c.lineCap = 'round';
+  c.beginPath(); c.arc(hiltX, hiltY, len, ang - .5, ang + .05); c.stroke();
   c.strokeStyle = '#2a2a33'; c.lineWidth = 6; c.lineCap = 'round';
   c.beginPath(); c.moveTo(hiltX, hiltY); c.lineTo(hiltX + Math.cos(ang) * 13, hiltY + Math.sin(ang) * 13); c.stroke();
-  c.shadowColor = '#7CFF9E'; c.shadowBlur = 20;
+  c.shadowColor = '#7CFF9E'; c.shadowBlur = 22;
   const grad = c.createLinearGradient(hiltX, hiltY, tipX, tipY);
   grad.addColorStop(0, '#eafff0'); grad.addColorStop(.2, '#7CFF9E'); grad.addColorStop(1, '#0a5c2a');
   c.strokeStyle = grad; c.lineWidth = 6.4; c.beginPath(); c.moveTo(hiltX, hiltY); c.lineTo(tipX, tipY); c.stroke();
@@ -681,12 +697,22 @@ function update(dt) {
   for (const gAntigo of dashGhosts) gAntigo.life -= dt;
   dashGhosts = dashGhosts.filter(g => g.life > 0);
 
-  // ---- sabre de luz: destrói obstáculos no alcance ----
+  // ---- sabre de luz: corta tudo que se aproxima (alcance maior por baixo, de onde vêm os obstáculos) ----
   if (sabreOn) {
     for (const o of obst) {
       if (o.morto || o.tp === 'nevasca') continue;
       const dx = o.x - jog.x, dy = o.y - (PY + 12);
-      if (dx * dx + dy * dy < SABRE_RAIO * SABRE_RAIO) { o.morto = true; burst(o.x, o.y, '#7CFF9E', 10, 130); somCorte(); }
+      const ry = dy > 0 ? SABRE_RY_BAIXO : SABRE_RY_CIMA;
+      if ((dx * dx) / (SABRE_RX * SABRE_RX) + (dy * dy) / (ry * ry) < 1) {
+        o.morto = true;
+        // corte ao meio: duas metades voando em direções opostas + brilho
+        const angCorte = Math.atan2(dy, dx) + Math.PI / 2;
+        for (const sd of [-1, 1]) {
+          const a = angCorte + (sd > 0 ? 0 : Math.PI);
+          for (let i = 0; i < 6; i++) fx.push({ x: o.x, y: o.y, vx: Math.cos(a) * rnd(70, 160) + rnd(-20, 20), vy: Math.sin(a) * rnd(70, 160) + rnd(-20, 20), life: rnd(.25, .45), max: .45, cor: sd > 0 ? '#7CFF9E' : '#eafff0', r: rnd(2, 4) });
+        }
+        somCorte();
+      }
     }
   }
 
