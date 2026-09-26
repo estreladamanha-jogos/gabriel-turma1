@@ -112,9 +112,12 @@ const WORLD_BOUNDS = [250, 500, 750, 1000];   // metros onde aparece o portal de
 const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 'ESPAÇO PROFUNDO'];
 const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀'];
 const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55];   // mundo 4 cai bem mais rápido que o mundo 1
-const DASH_DUR = .22, DASH_LOCK = 2.3, DASH_SPEED = 920;      // poder 1: dash (ESPAÇO)
-const SABRE_DUR = 2.6, SABRE_LOCK = 8.5;                      // poder 2: sabre de luz (F)
+const DASH_DUR = .22, DASH_LOCK = 2.3, DASH_SPEED = 920;      // poder 0: dash
+const SABRE_DUR = 2.6, SABRE_LOCK = 8.5;                      // poder 1: sabre de luz
 const SABRE_RX = 76, SABRE_RY_BAIXO = 150, SABRE_RY_CIMA = 60; // alcance maior pra baixo — corta o que vem subindo pela tela
+const SHIELD_DUR = 5, SHIELD_LOCK = 9.5;                      // poder 2: escudo (bolha que aguenta 1 golpe)
+const NOMES_PODER = ['DASH', 'SABRE', 'ESCUDO'];
+const CORES_PODER = ['#bfe8ff', '#7CFF9E', '#ffe066'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -163,6 +166,9 @@ function somVitoria() {
 function somDash() { tom(900, .16, 'sine', .16, 0, 260); ruido(.12, .08); }
 function somSabreOn() { tom(180, .35, 'sawtooth', .1, 0, 620); tom(700, .12, 'sine', .12, .05); }
 function somCorte() { tom(1400, .08, 'square', .12, 0, 500); }
+function somEscudoOn() { tom(500, .22, 'triangle', .16, 0, 900); }
+function somEscudoAbsorve() { tom(300, .18, 'sine', .18, 0, 700); ruido(.1, .08); }
+function somTrocarPoder() { tom(700, .07, 'square', .1); }
 
 /* ============================================================
    ESTADO DO JOGO
@@ -176,8 +182,10 @@ let spawnT = 1, gemT = 1;
 const keys = { left: false, right: false };
 
 /* ---------- poderes ---------- */
+let poderAtivo = 0;               // 0 = dash, 1 = sabre, 2 = escudo — trocado com Q
 let dashTimer = 0, dashDir = 1, dashGhosts = [];
 let sabreTimer = 0;
+let shieldTimer = 0, shieldBolha = false, shieldBolhaT = 0;
 function dashAtivo() { return dashTimer > DASH_LOCK - DASH_DUR; }
 function sabreAtivo() { return sabreTimer > SABRE_LOCK - SABRE_DUR; }
 
@@ -255,24 +263,29 @@ function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = 3; invenc = 0; cristais = 0; shake = 0; flash = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
   world = 0; bannerT = 1.15; proxTransicao = 0; portal = null;
-  dashTimer = 0; sabreTimer = 0; dashGhosts = [];
+  dashTimer = 0; sabreTimer = 0; dashGhosts = []; shieldTimer = 0; shieldBolha = false; shieldBolhaT = 0; poderAtivo = 0;
   ambiente = gerarAmbiente(0); decor = gerarDecor(0);
 }
 addEventListener('keydown', e => {
   const k = e.code;
-  if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'KeyF'].includes(k)) e.preventDefault();
+  if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'KeyQ'].includes(k)) e.preventDefault();
   audioLigar();
   if (estado !== 'jogando') { if (k === 'Space' || k === 'Enter' || k === 'KeyR') resetar(); return; }
   if (k === 'ArrowLeft' || k === 'KeyA') keys.left = true;
   if (k === 'ArrowRight' || k === 'KeyD') keys.right = true;
-  if (k === 'Space' && dashTimer <= 0) {
-    dashTimer = DASH_LOCK;
-    dashDir = (keys.left ? -1 : keys.right ? 1 : jog.dir) || 1;
-    somDash();
-  }
-  if (k === 'KeyF' && sabreTimer <= 0) {
-    sabreTimer = SABRE_LOCK;
-    somSabreOn();
+  if (k === 'KeyQ') { poderAtivo = (poderAtivo + 1) % 3; somTrocarPoder(); }
+  if (k === 'Space') {
+    if (poderAtivo === 0 && dashTimer <= 0) {
+      dashTimer = DASH_LOCK;
+      dashDir = (keys.left ? -1 : keys.right ? 1 : jog.dir) || 1;
+      somDash();
+    } else if (poderAtivo === 1 && sabreTimer <= 0) {
+      sabreTimer = SABRE_LOCK;
+      somSabreOn();
+    } else if (poderAtivo === 2 && shieldTimer <= 0) {
+      shieldTimer = SHIELD_LOCK; shieldBolhaT = SHIELD_DUR; shieldBolha = true;
+      somEscudoOn();
+    }
   }
 });
 addEventListener('keyup', e => {
@@ -583,6 +596,16 @@ function drawDashStreak() {
   c.strokeStyle = g; c.lineWidth = 14; c.lineCap = 'round';
   c.beginPath(); c.moveTo(jog.x - dashDir * comprimento, PY + 12); c.lineTo(jog.x, PY + 12); c.stroke();
 }
+function drawEscudoBolha() {
+  const pulso = 1 + Math.sin(t * 5) * .05;
+  c.save(); c.translate(jog.x, PY + 12); c.scale(pulso, pulso);
+  const g = c.createRadialGradient(-6, -8, 2, 0, 0, 34);
+  g.addColorStop(0, 'rgba(255,240,160,.05)'); g.addColorStop(.75, 'rgba(255,224,102,.16)'); g.addColorStop(1, 'rgba(255,224,102,.55)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, 34, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(255,236,150,.9)'; c.lineWidth = 2.4; c.beginPath(); c.arc(0, 0, 34, 0, 7); c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.ellipse(-11, -13, 7, 4, -.6, 0, 7); c.fill();
+  c.restore();
+}
 function drawSabre() {
   // zona de corte: um brilho abrangendo o alcance (maior por baixo, de onde vem tudo)
   c.save(); c.translate(jog.x, PY + 12);
@@ -663,6 +686,8 @@ function update(dt) {
   if (bannerT > 0) bannerT -= dt;
   if (dashTimer > 0) dashTimer -= dt;
   if (sabreTimer > 0) sabreTimer -= dt;
+  if (shieldTimer > 0) shieldTimer -= dt;
+  if (shieldBolha) { shieldBolhaT -= dt; if (shieldBolhaT <= 0) shieldBolha = false; }
   const dashOn = dashAtivo(), sabreOn = sabreAtivo();
   if (dashOn) invenc = Math.max(invenc, .12);
 
@@ -761,7 +786,10 @@ function update(dt) {
       const bandTop = o.y - 46, bandBot = o.y + 42;
       const colideEsq = hb.x < gapL && hb.y < bandBot && hb.y + hb.h > bandTop;
       const colideDir = hb.x + hb.w > gapR && hb.y < bandBot && hb.y + hb.h > bandTop;
-      if ((colideEsq || colideDir) && invenc <= 0) { levarDano(o); break; }
+      if ((colideEsq || colideDir) && invenc <= 0) {
+        if (shieldBolha) { absorverComEscudo(o); break; }
+        levarDano(o); break;
+      }
       continue;
     }
     let ox, oy, ow, oh;
@@ -771,6 +799,7 @@ function update(dt) {
     else { ox = o.x - o.w * .42; oy = o.y - o.h * .42; ow = o.w * .84; oh = o.h * .84; }
     if (hb.x < ox + ow && hb.x + hb.w > ox && hb.y < oy + oh && hb.y + hb.h > oy) {
       if (invenc > 0) continue;
+      if (shieldBolha) { absorverComEscudo(o); break; }
       levarDano(o);
       break;
     }
@@ -799,6 +828,13 @@ function levarDano(o) {
   somDano();
   if (o) o.morto = true;
   if (vidas <= 0) { estado = 'gameover'; somGameOver(); }
+}
+
+function absorverComEscudo(o) {
+  shieldBolha = false; invenc = .4; shake = .18;
+  burst(jog.x, PY, '#ffe066', 20, 190);
+  somEscudoAbsorve();
+  if (o) o.morto = true;
 }
 
 /* ============================================================
@@ -1024,15 +1060,53 @@ function desenhar() {
   if (dashOn) { drawDashStreak(); drawDashGhosts(); }
   const piscando = invenc > 0 && Math.floor(t * 14) % 2 === 0;
   if (estado !== 'gameover') {
-    drawFagulha(c, jog.x, PY + 12, .42, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2 && !dashOn, alpha: piscando && !dashOn ? .3 : 1 });
+    const corPeito = estado === 'jogando' ? CORES_PODER[poderAtivo] : undefined;
+    drawFagulha(c, jog.x, PY + 12, .42, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2 && !dashOn, alpha: piscando && !dashOn ? .3 : 1, glow: corPeito });
   }
   if (sabreOn) drawSabre();
+  if (estado === 'jogando' && shieldBolha) drawEscudoBolha();
   for (const p of fx) { c.globalAlpha = clamp(p.life / p.max, 0, 1); c.fillStyle = p.cor; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); }
   c.globalAlpha = 1;
   c.restore();
   hud();
   banner();
   telas();
+}
+
+/* ============================================================
+   ÍCONES DOS PODERES (desenhados no Canvas, sem emoji)
+   ============================================================ */
+function iconeDash(x, y, cor) {
+  c.fillStyle = cor;
+  c.beginPath();
+  c.moveTo(x - 7, y - 10); c.lineTo(x + 3, y - 10); c.lineTo(x - 2, y - 1); c.lineTo(x + 7, y - 1);
+  c.lineTo(x - 4, y + 11); c.lineTo(x, y + 1); c.lineTo(x - 8, y + 1);
+  c.closePath(); c.fill();
+}
+function iconeSabre(x, y, cor) {
+  c.strokeStyle = '#2a2a33'; c.lineWidth = 4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x, y + 11); c.lineTo(x, y + 4); c.stroke();
+  c.strokeStyle = '#444'; c.lineWidth = 2.2;
+  c.beginPath(); c.moveTo(x - 6, y + 3); c.lineTo(x + 6, y + 3); c.stroke();
+  c.strokeStyle = cor; c.lineWidth = 4; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(x, y + 2); c.lineTo(x, y - 12); c.stroke();
+}
+function iconeEscudo(x, y, cor) {
+  c.fillStyle = cor;
+  c.beginPath();
+  c.moveTo(x, y - 11);
+  c.quadraticCurveTo(x + 10, y - 8, x + 9, y - 1);
+  c.quadraticCurveTo(x + 8, y + 8, x, y + 12);
+  c.quadraticCurveTo(x - 8, y + 8, x - 9, y - 1);
+  c.quadraticCurveTo(x - 10, y - 8, x, y - 11);
+  c.closePath(); c.fill();
+  c.strokeStyle = '#8a6d00'; c.lineWidth = 1.3; c.stroke();
+}
+const DESENHAR_ICONE = [iconeDash, iconeSabre, iconeEscudo];
+function pctPoder(i) {
+  if (i === 0) return clamp(1 - dashTimer / DASH_LOCK, 0, 1);
+  if (i === 1) return clamp(1 - sabreTimer / SABRE_LOCK, 0, 1);
+  return clamp(1 - shieldTimer / SHIELD_LOCK, 0, 1);
 }
 
 /* ============================================================
@@ -1053,13 +1127,22 @@ function hud() {
   c.fillStyle = '#7CFF9E'; c.fillRect(W - 14, 60, 6, 124 * pr);
   texto(Math.floor(metros()) + ' m', W - 11, 196, 8, '#fff', 'right');
 
-  // indicadores de poder (dash e sabre)
-  const dashPct = clamp(1 - dashTimer / DASH_LOCK, 0, 1), sabrePct = clamp(1 - sabreTimer / SABRE_LOCK, 0, 1);
-  c.font = '11px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
-  c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(12, H - 48, 100, 16); c.fillRect(12, H - 28, 100, 16);
-  c.fillStyle = dashPct >= 1 ? '#bfe8ff' : '#2c4a5c'; c.fillRect(12, H - 48, 100 * dashPct, 16);
-  c.fillStyle = sabrePct >= 1 ? '#7CFF9E' : '#245c34'; c.fillRect(12, H - 28, 100 * sabrePct, 16);
-  c.fillStyle = '#fff'; c.fillText('⚡ ESPAÇO', 18, H - 40); c.fillText('🟢 F', 18, H - 20);
+  // 3 ícones de poder (Q troca, ESPAÇO usa o ativo) — o ativo fica destacado
+  const tam = 46, gap = 8, baseX = 12, baseY = H - tam - 10;
+  for (let i = 0; i < 3; i++) {
+    const x = baseX + i * (tam + gap), y = baseY;
+    const cor = CORES_PODER[i], pronto = pctPoder(i) >= 1, ativo = i === poderAtivo;
+    c.fillStyle = 'rgba(10,10,20,.6)'; c.fillRect(x, y, tam, tam);
+    if (!pronto) { c.fillStyle = 'rgba(0,0,0,.45)'; c.fillRect(x, y, tam, tam * (1 - pctPoder(i))); }
+    c.globalAlpha = pronto ? 1 : .35;
+    DESENHAR_ICONE[i](x + tam / 2, y + tam / 2 + 2, cor);
+    c.globalAlpha = 1;
+    c.strokeStyle = ativo ? cor : 'rgba(255,255,255,.25)'; c.lineWidth = ativo ? 3 : 1.4;
+    c.strokeRect(x + c.lineWidth / 2, y + c.lineWidth / 2, tam - c.lineWidth, tam - c.lineWidth);
+    if (ativo) { c.globalAlpha = .5 + Math.sin(t * 6) * .3; c.strokeStyle = cor; c.lineWidth = 1.2; c.strokeRect(x - 2, y - 2, tam + 4, tam + 4); c.globalAlpha = 1; }
+  }
+  c.font = '9px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#fff';
+  c.fillText('Q troca  •  ESPAÇO usa: ' + NOMES_PODER[poderAtivo], baseX, baseY - 8);
 }
 function banner() {
   if (estado !== 'jogando' || bannerT <= 0) return;
@@ -1077,7 +1160,7 @@ function telas() {
     texto('4 MUNDOS', W / 2, 176, 12, '#7af6ff');
     texto('🌲 ❄️ 🌋 🚀', W / 2, 210, 16, '#fff');
     drawFagulha(c, W / 2, 350, .9, performance.now() / 1000, { pose: 'stand' });
-    texto('⚡ ESPAÇO: DASH   🟢 F: SABRE', W / 2, 480, 9, '#bfe8ff');
+    texto('ESPAÇO: usa poder   Q: troca (Dash/Sabre/Escudo)', W / 2, 480, 8, '#bfe8ff');
     if (Math.floor(performance.now() / 500) % 2) texto('APERTE ESPAÇO', W / 2, 540, 14, '#fff');
   } else if (estado === 'gameover') {
     c.fillStyle = 'rgba(30,0,10,.78)'; c.fillRect(0, 0, W, H);
