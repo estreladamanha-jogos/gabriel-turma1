@@ -106,18 +106,19 @@ const cv = document.getElementById('game'), c = cv.getContext('2d');
 const W = 420, H = 640;
 const PY = 190;
 const BASE_V = 230;
-const META_M = 1000;               // metros para vencer o jogo
+const META_M = 1250;               // metros para vencer o jogo
 const MUNDO_M = 250;               // metros por mundo (referência do tamanho de cada mundo)
-const WORLD_BOUNDS = [250, 500, 750, 1000];   // metros onde aparece o portal de cada mundo
-const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 'ESPAÇO PROFUNDO'];
-const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀'];
-const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55];   // mundo 4 cai bem mais rápido que o mundo 1
+const WORLD_BOUNDS = [250, 500, 750, 1000, 1250];   // metros onde aparece o portal de cada mundo
+const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 'ESPAÇO PROFUNDO', 'MUNDO DOS ESPELHOS'];
+const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀', '🪞'];
+const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55, 1.7];   // mundo 4 cai bem mais rápido que o mundo 1
 const DASH_DUR = .22, DASH_LOCK = 2.3, DASH_SPEED = 920;      // poder 0: dash
 const SABRE_DUR = 2.6, SABRE_LOCK = 8.5;                      // poder 1: sabre de luz
 const SABRE_RX = 76, SABRE_RY_BAIXO = 150, SABRE_RY_CIMA = 60; // alcance maior pra baixo — corta o que vem subindo pela tela
 const SHIELD_DUR = 5, SHIELD_LOCK = 9.5;                      // poder 2: escudo (bolha que aguenta 1 golpe)
-const NOMES_PODER = ['DASH', 'SABRE', 'ESCUDO'];
-const CORES_PODER = ['#bfe8ff', '#7CFF9E', '#ffe066'];
+const SHRINK_DUR = 4, SHRINK_LOCK = 10;                       // poder 3: encolher (metade do tamanho)
+const NOMES_PODER = ['DASH', 'SABRE', 'ESCUDO', 'ENCOLHER'];
+const CORES_PODER = ['#bfe8ff', '#7CFF9E', '#ffe066', '#c9a6ff'];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -149,12 +150,12 @@ function ruido(dur, vol, quando) {
   const g = actx.createGain(); g.gain.setValueAtTime(vol || .12, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   src.connect(g); g.connect(actx.destination); src.start(t0);
 }
-function somCristal() { const base = [660, 520, 880, 990][world]; tom(base, .18, 'triangle', .16); tom(base * 1.5, .16, 'sine', .1, .04); }
+function somCristal() { const base = [660, 520, 880, 990, 740][world]; tom(base, .18, 'triangle', .16); tom(base * 1.5, .16, 'sine', .1, .04); }
 function somDano() { tom(140, .22, 'sawtooth', .18, 0, 60); ruido(.15, .1); }
 function somGameOver() { tom(300, .5, 'sawtooth', .16, 0, 60); tom(200, .6, 'sawtooth', .12, .15, 40); }
 function somMudancaMundo() {
-  const seqs = [[523, 659, 784], [784, 659, 987], [110, 90, 220], [1200, 1800, 2400]];
-  const tipos = ['triangle', 'sine', 'sawtooth', 'square'];
+  const seqs = [[523, 659, 784], [784, 659, 987], [110, 90, 220], [1200, 1800, 2400], [660, 660, 990]];
+  const tipos = ['triangle', 'sine', 'sawtooth', 'square', 'triangle'];
   const s = seqs[world], tp = tipos[world];
   s.forEach((f, i) => tom(f, .16, tp, .14, i * .09));
   ruido(.3, .06);
@@ -169,6 +170,8 @@ function somCorte() { tom(1400, .08, 'square', .12, 0, 500); }
 function somEscudoOn() { tom(500, .22, 'triangle', .16, 0, 900); }
 function somEscudoAbsorve() { tom(300, .18, 'sine', .18, 0, 700); ruido(.1, .08); }
 function somTrocarPoder() { tom(700, .07, 'square', .1); }
+function somEncolherOn() { tom(1000, .16, 'sine', .14, 0, 1800); }
+function somEspelhoDano() { tom(160, .2, 'sawtooth', .16, 0, 70); ruido(.12, .08); }
 
 /* ============================================================
    ESTADO DO JOGO
@@ -186,8 +189,10 @@ let poderAtivo = 0;               // 0 = dash, 1 = sabre, 2 = escudo — trocado
 let dashTimer = 0, dashDir = 1, dashGhosts = [];
 let sabreTimer = 0;
 let shieldTimer = 0, shieldBolha = false, shieldBolhaT = 0;
+let shrinkTimer = 0;
 function dashAtivo() { return dashTimer > DASH_LOCK - DASH_DUR; }
 function sabreAtivo() { return sabreTimer > SABRE_LOCK - SABRE_DUR; }
+function shrinkAtivo() { return shrinkTimer > SHRINK_LOCK - SHRINK_DUR; }
 
 /* ---------- mundos ---------- */
 let world = 0;
@@ -205,9 +210,11 @@ function gerarAmbiente(w) {
     for (let i = 0; i < 34; i++) arr.push({ tp: 'neve', x: rnd(0, W), y: rnd(0, H), r: rnd(1.2, 3.2), vy: rnd(20, 55), vx: rnd(-14, 14), fase: rnd(0, 6.28) });
   } else if (w === 2) { // vulcão: brasas e cinzas
     for (let i = 0; i < 26; i++) arr.push({ tp: 'brasa', x: rnd(0, W), y: rnd(0, H), r: rnd(1.4, 3.4), vy: rnd(-70, -30), vx: rnd(-10, 10), fase: rnd(0, 6.28) });
-  } else { // espaço: estrelas cadentes/poeira + foguete cruzando ao fundo
+  } else if (w === 3) { // espaço: estrelas cadentes/poeira + foguete cruzando ao fundo
     for (let i = 0; i < 30; i++) arr.push({ tp: 'poeira', x: rnd(0, W), y: rnd(0, H), r: rnd(.8, 2.2), fase: rnd(0, 6.28) });
     arr.push({ tp: 'foguete_bg', x: rnd(0, W), y: rnd(80, H - 80), vx: rnd(24, 40) * (Math.random() < .5 ? 1 : -1), vy: rnd(-8, 8), fase: rnd(0, 6.28) });
+  } else { // mundo dos espelhos: brilhos flutuando
+    for (let i = 0; i < 24; i++) arr.push({ tp: 'brilho', x: rnd(0, W), y: rnd(0, H), r: rnd(1, 2.4), fase: rnd(0, 6.28) });
   }
   return arr;
 }
@@ -234,12 +241,18 @@ function gerarDecor(w) {
     for (let i = 0; i < 7; i++) { const esq = i % 2 === 0; mid.push({ x: esq ? rnd(-15, 60) : rnd(W - 60, W + 15), seed: rnd(0, 1), h: rnd(150, 220), wgt: rnd(70, 100) }); }
     for (let i = 0; i < 10; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 2)), s: rnd(.7, 1.3), fase: rnd(0, 6.28) });
     for (let i = 0; i < 8; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1), s: rnd(.7, 1.4) });
-  } else {
+  } else if (w === 3) {
     // espaço: planetas e galáxias distantes, estrelas médias, campo de detritos/asteroides próximo, estrelas rápidas na frente
     for (let i = 0; i < 3; i++) far.push({ x: rnd(0, W), seed: rnd(0, 1), r: rnd(30, 70) });
     for (let i = 0; i < 40; i++) mid.push({ x: rnd(0, W), seed: rnd(0, 1) });
     for (let i = 0; i < 12; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 2)), s: rnd(.5, 1.1), fase: rnd(0, 6.28) });
     for (let i = 0; i < 55; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1) });
+  } else {
+    // mundo dos espelhos: colunas de vidro/espelho simétricas nas duas laterais
+    for (let i = 0; i < 6; i++) { const esq = i % 2 === 0; far.push({ x: esq ? rnd(-20, 30) : rnd(W - 30, W + 20), seed: rnd(0, 1), h: rnd(180, 260), wgt: rnd(40, 60) }); }
+    for (let i = 0; i < 8; i++) { const esq = i % 2 === 0; mid.push({ x: esq ? rnd(0, 50) : rnd(W - 50, W), seed: rnd(0, 1), h: rnd(100, 160), wgt: rnd(24, 36) }); }
+    for (let i = 0; i < 10; i++) floor.push({ x: rnd(0, W), tp: Math.floor(rnd(0, 2)), s: rnd(.6, 1.2), fase: rnd(0, 6.28) });
+    for (let i = 0; i < 20; i++) near.push({ x: rnd(0, W), seed: rnd(0, 1), s: rnd(.5, 1.1) });
   }
   return { far, mid, floor, near };
 }
@@ -252,7 +265,7 @@ function trocarMundo(novo) {
   ambiente = gerarAmbiente(world);
   decor = gerarDecor(world);
   obst = []; gems = [];
-  burst(jog.x, PY, ['#7CFF9E', '#bfe8ff', '#ffb14e', '#8fb8ff'][world], 30, 200);
+  burst(jog.x, PY, ['#7CFF9E', '#bfe8ff', '#ffb14e', '#8fb8ff', '#e8e8f8'][world], 30, 200);
   audioLigar(); somMudancaMundo();
 }
 
@@ -263,7 +276,7 @@ function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = 3; invenc = 0; cristais = 0; shake = 0; flash = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
   world = 0; bannerT = 1.15; proxTransicao = 0; portal = null;
-  dashTimer = 0; sabreTimer = 0; dashGhosts = []; shieldTimer = 0; shieldBolha = false; shieldBolhaT = 0; poderAtivo = 0;
+  dashTimer = 0; sabreTimer = 0; dashGhosts = []; shieldTimer = 0; shieldBolha = false; shieldBolhaT = 0; shrinkTimer = 0; poderAtivo = 0;
   ambiente = gerarAmbiente(0); decor = gerarDecor(0);
 }
 addEventListener('keydown', e => {
@@ -273,7 +286,7 @@ addEventListener('keydown', e => {
   if (estado !== 'jogando') { if (k === 'Space' || k === 'Enter' || k === 'KeyR') resetar(); return; }
   if (k === 'ArrowLeft' || k === 'KeyA') keys.left = true;
   if (k === 'ArrowRight' || k === 'KeyD') keys.right = true;
-  if (k === 'KeyQ') { poderAtivo = (poderAtivo + 1) % 3; somTrocarPoder(); }
+  if (k === 'KeyQ') { poderAtivo = (poderAtivo + 1) % 4; somTrocarPoder(); }
   if (k === 'Space') {
     if (poderAtivo === 0 && dashTimer <= 0) {
       dashTimer = DASH_LOCK;
@@ -285,6 +298,9 @@ addEventListener('keydown', e => {
     } else if (poderAtivo === 2 && shieldTimer <= 0) {
       shieldTimer = SHIELD_LOCK; shieldBolhaT = SHIELD_DUR; shieldBolha = true;
       somEscudoOn();
+    } else if (poderAtivo === 3 && shrinkTimer <= 0) {
+      shrinkTimer = SHRINK_LOCK;
+      somEncolherOn();
     }
   }
 });
@@ -316,7 +332,8 @@ function criarObstaculo() {
   if (w === 0) spawnFloresta();
   else if (w === 1) spawnGeleira();
   else if (w === 2) spawnVulcao();
-  else spawnEspaco();
+  else if (w === 3) spawnEspaco();
+  else spawnEspelhos();
 }
 function spawnFloresta() {
   const r = Math.random();
@@ -353,6 +370,9 @@ function spawnEspaco() {
   else if (r < .66) obst.push({ tp: 'laser_e', x: rnd(60, W - 60), y: -20, w: 12, h: rnd(120, 200), preso: true, fase: rnd(0, 6.28), dur: rnd(1.1, 1.7) });
   else if (r < .8) obst.push({ tp: 'buraco_negro', x: rnd(60, W - 60), y: H + 60, r: rnd(20, 30), rot: 0 });
   else obst.push({ tp: 'astronauta', x: rnd(0, 1) < .5 ? -30 : W + 30, y: rnd(120, 440), w: 24, h: 34, vx: rnd(45, 75) * (Math.random() < .5 ? 1 : -1), vy: rnd(-18, 18), rot: rnd(0, 6.28), rotV: rnd(-1.2, 1.2) }); // astronauta à deriva
+}
+function spawnEspelhos() {
+  obst.push({ tp: 'estilhaco', x: rnd(50, W - 50), y: H + 40, w: rnd(34, 56), h: rnd(34, 56), rot: rnd(0, 6.28), rotV: rnd(-2, 2) }); // estilhaço de espelho
 }
 
 /* ---------- desenho de obstáculos ---------- */
@@ -561,6 +581,17 @@ function desenharObstaculo(o) {
       c.fillStyle = gg; c.beginPath(); c.arc(0, -12, 7, 0, 7); c.fill();
       break;
     }
+    /* ---- ESPELHOS ---- */
+    case 'estilhaco': {
+      c.rotate(o.rot);
+      const g = c.createLinearGradient(-o.w / 2, -o.h / 2, o.w / 2, o.h / 2);
+      g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(.5, 'rgba(190,200,230,.55)'); g.addColorStop(1, 'rgba(120,130,170,.35)');
+      c.fillStyle = g; c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(0, -o.h / 2); c.lineTo(o.w / 2, 0); c.lineTo(0, o.h / 2); c.lineTo(-o.w / 2, 0); c.closePath(); c.fill(); c.stroke();
+      c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(-o.w / 4, -o.h / 4); c.lineTo(o.w / 4, o.h / 4); c.stroke();
+      break;
+    }
   }
   c.restore();
 }
@@ -569,7 +600,7 @@ function desenharObstaculo(o) {
    CRISTAIS
    ============================================================ */
 function desenharCristal(g) {
-  const cores = [['#7CFF9E', '#c7ffdf'], ['#bfe8ff', '#ffffff'], ['#ff8a3d', '#ffe27a'], ['#8fb8ff', '#e9d9ff']][world];
+  const cores = [['#7CFF9E', '#c7ffdf'], ['#bfe8ff', '#ffffff'], ['#ff8a3d', '#ffe27a'], ['#8fb8ff', '#e9d9ff'], ['#e8e8f8', '#ffffff']][world];
   c.save(); c.translate(g.x, g.y); c.rotate(Math.sin(t * 3 + g.x) * .3);
   const pulso = 1 + Math.sin(t * 6 + g.x) * .12;
   c.scale(pulso, pulso);
@@ -642,7 +673,7 @@ function drawSabre() {
    PORTAL — estrutura com profundidade, anéis e partículas
    ============================================================ */
 function drawPortal(p) {
-  const cor = [['#7CFF9E', '#e9ffef'], ['#bfe8ff', '#ffffff'], ['#ff8a3d', '#ffe27a'], ['#8fb8ff', '#e9d9ff']][world];
+  const cor = [['#7CFF9E', '#e9ffef'], ['#bfe8ff', '#ffffff'], ['#ff8a3d', '#ffe27a'], ['#8fb8ff', '#e9d9ff'], ['#e8e8f8', '#ffffff']][world];
   c.save(); c.translate(W / 2, p.y);
   // moldura externa (estrutura física do portal)
   c.strokeStyle = '#1a1626'; c.lineWidth = 14;
@@ -688,6 +719,7 @@ function update(dt) {
   if (sabreTimer > 0) sabreTimer -= dt;
   if (shieldTimer > 0) shieldTimer -= dt;
   if (shieldBolha) { shieldBolhaT -= dt; if (shieldBolhaT <= 0) shieldBolha = false; }
+  if (shrinkTimer > 0) shrinkTimer -= dt;
   const dashOn = dashAtivo(), sabreOn = sabreAtivo();
   if (dashOn) invenc = Math.max(invenc, .12);
 
@@ -751,7 +783,7 @@ function update(dt) {
     if (o.tp === 'jato_lava') { o.fase += dt; o.ativo = o.fase > o.t0 && o.fase < o.t0 + o.dur * .6; if (o.fase > o.t0 + o.dur) o.fase = 0; }
     if (o.tp === 'nevasca') o.fase += dt;
     if (o.tp === 'laser_e') o.fase += dt * (1 / o.dur) * 3.4;
-    if (o.tp === 'meteoro_v' || o.tp === 'meteoro_e') o.rot += o.rotV * dt;
+    if (o.tp === 'meteoro_v' || o.tp === 'meteoro_e' || o.tp === 'estilhaco') o.rot += o.rotV * dt;
     if (o.tp === 'buraco_negro') o.rot += dt * 2;
     if (o.tp === 'astronauta') { o.y += o.vy * dt; o.rot += o.rotV * dt; }
     if (o.tp === 'avalanche') { o.fase += dt; o.x = W / 2 + Math.sin(t * 1.1 + o.fase) * 150; }
@@ -769,12 +801,13 @@ function update(dt) {
   if (gemT <= 0) { gems.push({ x: rnd(40, W - 40), y: H + 30 }); gemT = .7; }
   for (const g of gems) g.y -= vel * dt;
   gems = gems.filter(g => {
-    if (Math.abs(g.x - jog.x) < 28 && Math.abs(g.y - (PY + 4)) < 44) { cristais++; burst(g.x, g.y, ['#7CFF9E', '#bfe8ff', '#ff8a3d', '#8fb8ff'][world], 8, 90); somCristal(); return false; }
+    if (Math.abs(g.x - jog.x) < 28 && Math.abs(g.y - (PY + 4)) < 44) { cristais++; burst(g.x, g.y, ['#7CFF9E', '#bfe8ff', '#ff8a3d', '#8fb8ff', '#e8e8f8'][world], 8, 90); somCristal(); return false; }
     return g.y > -30;
   });
 
   // ---- colisões ----
-  const hb = { x: jog.x - 15, y: PY - 26, w: 30, h: 58 };
+  const fatorEsc = shrinkAtivo() ? .5 : 1;
+  const hb = { x: jog.x - 15 * fatorEsc, y: PY - 26, w: 30 * fatorEsc, h: 58 * fatorEsc };
   for (const o of obst) {
     if (o.morto) continue;
     if (o.tp === 'jato_lava' && !o.ativo) continue;
@@ -802,6 +835,23 @@ function update(dt) {
       if (shieldBolha) { absorverComEscudo(o); break; }
       levarDano(o);
       break;
+    }
+  }
+
+  // ---- reflexo (mundo dos espelhos): se um obstáculo bater nele, você também toma dano ----
+  if (world === 4 && invenc <= 0) {
+    const mirrorX = W - jog.x;
+    const hb2 = { x: mirrorX - 15 * fatorEsc, y: PY - 26, w: 30 * fatorEsc, h: 58 * fatorEsc };
+    for (const o of obst) {
+      if (o.morto) continue;
+      const ox = o.x - o.w * .42, oy = o.y - o.h * .42, ow = o.w * .84, oh = o.h * .84;
+      if (hb2.x < ox + ow && hb2.x + hb2.w > ox && hb2.y < oy + oh && hb2.y + hb2.h > oy) {
+        vidas--; invenc = 1.5; shake = .3; flash = .35; burst(mirrorX, PY, '#c7c9ff', 16, 180);
+        somEspelhoDano();
+        o.morto = true;
+        if (vidas <= 0) { estado = 'gameover'; somGameOver(); }
+        break;
+      }
     }
   }
 
@@ -1039,11 +1089,56 @@ function drawSpace() {
   c.globalAlpha = 1;
 }
 
+function drawMirror() {
+  const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#161824'); g.addColorStop(.5, '#242840'); g.addColorStop(1, '#0c0d16');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  // costura central do espelho (linha de simetria)
+  const gS = c.createLinearGradient(W / 2 - 3, 0, W / 2 + 3, 0);
+  gS.addColorStop(0, 'rgba(255,255,255,0)'); gS.addColorStop(.5, 'rgba(220,225,255,.65)'); gS.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = gS; c.fillRect(W / 2 - 3, 0, 6, H);
+  // colunas de vidro simétricas
+  for (let i = 0; i < decor.far.length; i++) {
+    const d = decor.far[i], y = py(i, 250, .2, decor.far.length);
+    c.fillStyle = 'rgba(120,130,170,.4)';
+    c.beginPath(); c.moveTo(d.x - d.wgt / 2, y + d.h); c.lineTo(d.x, y); c.lineTo(d.x + d.wgt / 2, y + d.h); c.closePath(); c.fill();
+  }
+  for (let i = 0; i < decor.mid.length; i++) {
+    const d = decor.mid[i], y = py(i, 170, .46, decor.mid.length);
+    c.fillStyle = 'rgba(180,190,230,.5)'; c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 1.4;
+    c.beginPath(); c.roundRect(d.x - d.wgt / 2, y, d.wgt, d.h, 6); c.fill(); c.stroke();
+  }
+  // estilhaços no chão
+  for (const f of decor.floor) {
+    const y = ((py(0, 150, .7, 1) + t * 50 * f.s + f.fase * 22) % (H + 40)) - 20;
+    c.save(); c.translate(f.x, y); c.rotate(f.fase);
+    c.fillStyle = 'rgba(220,225,255,.5)'; c.beginPath(); c.moveTo(0, -8 * f.s); c.lineTo(6 * f.s, 0); c.lineTo(0, 8 * f.s); c.lineTo(-6 * f.s, 0); c.closePath(); c.fill();
+    c.restore();
+  }
+  // brilhos flutuantes
+  for (const a of ambiente) {
+    if (a.tp !== 'brilho') continue;
+    c.globalAlpha = .5 + Math.sin(a.fase) * .5; c.fillStyle = '#e8e8f8';
+    c.beginPath(); c.arc(a.x, a.y, a.r, 0, 7); c.fill();
+  }
+  c.globalAlpha = 1;
+  // fagulhas espelhadas rápidas na frente
+  for (let i = 0; i < decor.near.length; i++) {
+    const d = decor.near[i], y = ((py(i, 90, .95, decor.near.length) + t * 30 * d.s) % (H + 60)) - 30;
+    c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.arc(d.x, y, 2.4 * d.s, 0, 7); c.fill();
+  }
+
+  // ---- o reflexo: um Fagulha espelhado do outro lado, que se move ao contrário ----
+  const escala = .42 * (shrinkAtivo() ? .5 : 1);
+  const mirrorX = W - jog.x;
+  drawFagulha(c, mirrorX, PY + 12, escala, t, { vx: -clamp(jog.vx / 300, -1, 1), alpha: .85, glow: '#c7c9ff' });
+}
+
 function fundo() {
   if (world === 0) drawForest();
   else if (world === 1) drawGlacier();
   else if (world === 2) drawVolcano();
-  else drawSpace();
+  else if (world === 3) drawSpace();
+  else drawMirror();
   if (flash > 0) { c.fillStyle = `rgba(255,255,255,${clamp(flash, 0, 1) * .6})`; c.fillRect(0, 0, W, H); }
 }
 
@@ -1061,7 +1156,8 @@ function desenhar() {
   const piscando = invenc > 0 && Math.floor(t * 14) % 2 === 0;
   if (estado !== 'gameover') {
     const corPeito = estado === 'jogando' ? CORES_PODER[poderAtivo] : undefined;
-    drawFagulha(c, jog.x, PY + 12, .42, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2 && !dashOn, alpha: piscando && !dashOn ? .3 : 1, glow: corPeito });
+    const escalaJog = .42 * (estado === 'jogando' && shrinkAtivo() ? .5 : 1);
+    drawFagulha(c, jog.x, PY + 12, escalaJog, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2 && !dashOn, alpha: piscando && !dashOn ? .3 : 1, glow: corPeito });
   }
   if (sabreOn) drawSabre();
   if (estado === 'jogando' && shieldBolha) drawEscudoBolha();
@@ -1102,11 +1198,21 @@ function iconeEscudo(x, y, cor) {
   c.closePath(); c.fill();
   c.strokeStyle = '#8a6d00'; c.lineWidth = 1.3; c.stroke();
 }
-const DESENHAR_ICONE = [iconeDash, iconeSabre, iconeEscudo];
+function iconeEncolher(x, y, cor) {
+  c.strokeStyle = cor; c.lineWidth = 2; c.setLineDash([2, 2]);
+  c.strokeRect(x - 9, y - 9, 18, 18);
+  c.setLineDash([]);
+  c.fillStyle = cor;
+  c.beginPath(); c.arc(x, y, 4.5, 0, 7); c.fill();
+  c.strokeStyle = '#333'; c.lineWidth = 1.4;
+  for (const [dx, dy] of [[-6, -6], [6, -6], [-6, 6], [6, 6]]) { c.beginPath(); c.moveTo(x + dx * .35, y + dy * .35); c.lineTo(x + dx, y + dy); c.stroke(); }
+}
+const DESENHAR_ICONE = [iconeDash, iconeSabre, iconeEscudo, iconeEncolher];
 function pctPoder(i) {
   if (i === 0) return clamp(1 - dashTimer / DASH_LOCK, 0, 1);
   if (i === 1) return clamp(1 - sabreTimer / SABRE_LOCK, 0, 1);
-  return clamp(1 - shieldTimer / SHIELD_LOCK, 0, 1);
+  if (i === 2) return clamp(1 - shieldTimer / SHIELD_LOCK, 0, 1);
+  return clamp(1 - shrinkTimer / SHRINK_LOCK, 0, 1);
 }
 
 /* ============================================================
@@ -1127,9 +1233,9 @@ function hud() {
   c.fillStyle = '#7CFF9E'; c.fillRect(W - 14, 60, 6, 124 * pr);
   texto(Math.floor(metros()) + ' m', W - 11, 196, 8, '#fff', 'right');
 
-  // 3 ícones de poder (Q troca, ESPAÇO usa o ativo) — o ativo fica destacado
-  const tam = 46, gap = 8, baseX = 12, baseY = H - tam - 10;
-  for (let i = 0; i < 3; i++) {
+  // 4 ícones de poder (Q troca, ESPAÇO usa o ativo) — o ativo fica destacado
+  const tam = 42, gap = 7, baseX = 12, baseY = H - tam - 10;
+  for (let i = 0; i < 4; i++) {
     const x = baseX + i * (tam + gap), y = baseY;
     const cor = CORES_PODER[i], pronto = pctPoder(i) >= 1, ativo = i === poderAtivo;
     c.fillStyle = 'rgba(10,10,20,.6)'; c.fillRect(x, y, tam, tam);
@@ -1158,9 +1264,9 @@ function telas() {
     c.fillStyle = 'rgba(5,5,20,.72)'; c.fillRect(0, 0, W, H);
     texto('FAGULHA', W / 2, 130, 32, '#ffe9a8');
     texto('4 MUNDOS', W / 2, 176, 12, '#7af6ff');
-    texto('🌲 ❄️ 🌋 🚀', W / 2, 210, 16, '#fff');
+    texto('🌲 ❄️ 🌋 🚀 🪞', W / 2, 210, 16, '#fff');
     drawFagulha(c, W / 2, 350, .9, performance.now() / 1000, { pose: 'stand' });
-    texto('ESPAÇO: usa poder   Q: troca (Dash/Sabre/Escudo)', W / 2, 480, 8, '#bfe8ff');
+    texto('ESPAÇO: usa poder   Q: troca (Dash/Sabre/Escudo/Encolher)', W / 2, 480, 7, '#bfe8ff');
     if (Math.floor(performance.now() / 500) % 2) texto('APERTE ESPAÇO', W / 2, 540, 14, '#fff');
   } else if (estado === 'gameover') {
     c.fillStyle = 'rgba(30,0,10,.78)'; c.fillRect(0, 0, W, H);
