@@ -112,6 +112,8 @@ const WORLD_BOUNDS = [250, 500, 750, 1000];   // metros onde aparece o portal de
 const NOMES_MUNDO = ['FLORESTA ENCANTADA', 'GELEIRA ETERNA', 'VULCÃO ARDENTE', 'ESPAÇO PROFUNDO'];
 const ICONE_MUNDO = ['🌲', '❄️', '🌋', '🚀'];
 const WORLD_SPEED_MUL = [1, 1.15, 1.32, 1.55];   // mundo 4 cai bem mais rápido que o mundo 1
+const DASH_DUR = .22, DASH_LOCK = 2.3, DASH_SPEED = 920;      // poder 1: dash (ESPAÇO)
+const SABRE_DUR = 2.6, SABRE_LOCK = 8.5, SABRE_RAIO = 62;     // poder 2: sabre de luz (F)
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -157,6 +159,9 @@ function somVitoria() {
   const notas = [523, 659, 784, 1046, 1318];
   notas.forEach((f, i) => tom(f, .28, 'triangle', .18, i * .14));
 }
+function somDash() { tom(900, .16, 'sine', .16, 0, 260); ruido(.12, .08); }
+function somSabreOn() { tom(180, .35, 'sawtooth', .1, 0, 620); tom(700, .12, 'sine', .12, .05); }
+function somCorte() { tom(1400, .08, 'square', .12, 0, 500); }
 
 /* ============================================================
    ESTADO DO JOGO
@@ -168,6 +173,12 @@ const jog = { x: W / 2, vx: 0, dir: 1 };
 let obst = [], gems = [], fx = [], ambiente = [];
 let spawnT = 1, gemT = 1;
 const keys = { left: false, right: false };
+
+/* ---------- poderes ---------- */
+let dashTimer = 0, dashDir = 1, dashGhosts = [];
+let sabreTimer = 0;
+function dashAtivo() { return dashTimer > DASH_LOCK - DASH_DUR; }
+function sabreAtivo() { return sabreTimer > SABRE_LOCK - SABRE_DUR; }
 
 /* ---------- mundos ---------- */
 let world = 0;
@@ -243,15 +254,25 @@ function resetar() {
   estado = 'jogando'; t = 0; dist = 0; vidas = 3; invenc = 0; cristais = 0; shake = 0; flash = 0;
   jog.x = W / 2; jog.vx = 0; obst = []; gems = []; fx = []; spawnT = 1; gemT = 1;
   world = 0; bannerT = 1.15; proxTransicao = 0; portal = null;
+  dashTimer = 0; sabreTimer = 0; dashGhosts = [];
   ambiente = gerarAmbiente(0); decor = gerarDecor(0);
 }
 addEventListener('keydown', e => {
   const k = e.code;
-  if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab'].includes(k)) e.preventDefault();
+  if (['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'KeyF'].includes(k)) e.preventDefault();
   audioLigar();
   if (estado !== 'jogando') { if (k === 'Space' || k === 'Enter' || k === 'KeyR') resetar(); return; }
   if (k === 'ArrowLeft' || k === 'KeyA') keys.left = true;
   if (k === 'ArrowRight' || k === 'KeyD') keys.right = true;
+  if (k === 'Space' && dashTimer <= 0) {
+    dashTimer = DASH_LOCK;
+    dashDir = (keys.left ? -1 : keys.right ? 1 : jog.dir) || 1;
+    somDash();
+  }
+  if (k === 'KeyF' && sabreTimer <= 0) {
+    sabreTimer = SABRE_LOCK;
+    somSabreOn();
+  }
 });
 addEventListener('keyup', e => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
@@ -546,6 +567,39 @@ function desenharCristal(g) {
 }
 
 /* ============================================================
+   PODERES — dash (rastro) e sabre de luz
+   ============================================================ */
+function drawDashGhosts() {
+  for (const g of dashGhosts) {
+    const a = clamp(g.life / .26, 0, 1);
+    drawFagulha(c, g.x, g.y, .42, t, { vx: clamp(jog.vx / 300, -1, 1), alpha: a * .35, glow: '#bfe8ff' });
+  }
+}
+function drawDashStreak() {
+  const comprimento = 46;
+  const g = c.createLinearGradient(jog.x - dashDir * comprimento, PY + 12, jog.x, PY + 12);
+  g.addColorStop(0, 'rgba(191,232,255,0)'); g.addColorStop(1, 'rgba(191,232,255,.75)');
+  c.strokeStyle = g; c.lineWidth = 14; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(jog.x - dashDir * comprimento, PY + 12); c.lineTo(jog.x, PY + 12); c.stroke();
+}
+function drawSabre() {
+  const ang = Math.sin(t * 9) * .3 - .95;
+  const hiltX = jog.x + 10, hiltY = PY + 4;
+  const len = 68;
+  const tipX = hiltX + Math.cos(ang) * len, tipY = hiltY + Math.sin(ang) * len;
+  c.save();
+  c.strokeStyle = '#2a2a33'; c.lineWidth = 6; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(hiltX, hiltY); c.lineTo(hiltX + Math.cos(ang) * 13, hiltY + Math.sin(ang) * 13); c.stroke();
+  c.shadowColor = '#7CFF9E'; c.shadowBlur = 20;
+  const grad = c.createLinearGradient(hiltX, hiltY, tipX, tipY);
+  grad.addColorStop(0, '#eafff0'); grad.addColorStop(.2, '#7CFF9E'); grad.addColorStop(1, '#0a5c2a');
+  c.strokeStyle = grad; c.lineWidth = 6.4; c.beginPath(); c.moveTo(hiltX, hiltY); c.lineTo(tipX, tipY); c.stroke();
+  c.shadowBlur = 0;
+  c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(hiltX, hiltY); c.lineTo(tipX, tipY); c.stroke();
+  c.restore();
+}
+
+/* ============================================================
    PORTAL — estrutura com profundidade, anéis e partículas
    ============================================================ */
 function drawPortal(p) {
@@ -591,6 +645,10 @@ function update(dt) {
   if (shake > 0) shake -= dt;
   if (flash > 0) flash -= dt * 2.4;
   if (bannerT > 0) bannerT -= dt;
+  if (dashTimer > 0) dashTimer -= dt;
+  if (sabreTimer > 0) sabreTimer -= dt;
+  const dashOn = dashAtivo(), sabreOn = sabreAtivo();
+  if (dashOn) invenc = Math.max(invenc, .12);
 
   // ---- portal (só troca de mundo quando o Fagulha atravessa) ----
   if (!portal && proxTransicao < WORLD_BOUNDS.length && metros() >= WORLD_BOUNDS[proxTransicao] - 42) {
@@ -612,8 +670,25 @@ function update(dt) {
   // ---- movimento ----
   const ax = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
   if (ax) jog.dir = ax;
-  jog.vx += (ax * 300 - jog.vx) * Math.min(1, dt * 10);
+  if (dashOn) {
+    jog.vx = dashDir * DASH_SPEED;
+    dashGhosts.push({ x: jog.x, y: PY + 12, life: .26 });
+    fx.push({ x: jog.x - dashDir * 12, y: PY + 12 + rnd(-18, 18), vx: -dashDir * rnd(160, 280), vy: rnd(-30, 30), life: rnd(.16, .3), max: .3, cor: '#bfe8ff', r: rnd(2, 4) });
+  } else {
+    jog.vx += (ax * 300 - jog.vx) * Math.min(1, dt * 10);
+  }
   jog.x = clamp(jog.x + jog.vx * dt, 34, W - 34);
+  for (const gAntigo of dashGhosts) gAntigo.life -= dt;
+  dashGhosts = dashGhosts.filter(g => g.life > 0);
+
+  // ---- sabre de luz: destrói obstáculos no alcance ----
+  if (sabreOn) {
+    for (const o of obst) {
+      if (o.morto || o.tp === 'nevasca') continue;
+      const dx = o.x - jog.x, dy = o.y - (PY + 12);
+      if (dx * dx + dy * dy < SABRE_RAIO * SABRE_RAIO) { o.morto = true; burst(o.x, o.y, '#7CFF9E', 10, 130); somCorte(); }
+    }
+  }
 
   // ---- obstáculos ----
   const dificuldade = clamp(1 - metros() / 3000, .45, 1);
@@ -919,10 +994,13 @@ function desenhar() {
   for (const o of obst) desenharObstaculo(o);
   if (portal) drawPortal(portal);
 
+  const dashOn = estado === 'jogando' && dashAtivo(), sabreOn = estado === 'jogando' && sabreAtivo();
+  if (dashOn) { drawDashStreak(); drawDashGhosts(); }
   const piscando = invenc > 0 && Math.floor(t * 14) % 2 === 0;
   if (estado !== 'gameover') {
-    drawFagulha(c, jog.x, PY + 12, .42, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2, alpha: piscando ? .3 : 1 });
+    drawFagulha(c, jog.x, PY + 12, .42, t, { vx: clamp(jog.vx / 300, -1, 1), hit: invenc > 1.2 && !dashOn, alpha: piscando && !dashOn ? .3 : 1 });
   }
+  if (sabreOn) drawSabre();
   for (const p of fx) { c.globalAlpha = clamp(p.life / p.max, 0, 1); c.fillStyle = p.cor; c.beginPath(); c.arc(p.x, p.y, p.r, 0, 7); c.fill(); }
   c.globalAlpha = 1;
   c.restore();
@@ -948,6 +1026,14 @@ function hud() {
   c.fillStyle = 'rgba(0,0,0,.45)'; c.fillRect(W - 14, 60, 6, 124);
   c.fillStyle = '#7CFF9E'; c.fillRect(W - 14, 60, 6, 124 * pr);
   texto(Math.floor(metros()) + ' m', W - 11, 196, 8, '#fff', 'right');
+
+  // indicadores de poder (dash e sabre)
+  const dashPct = clamp(1 - dashTimer / DASH_LOCK, 0, 1), sabrePct = clamp(1 - sabreTimer / SABRE_LOCK, 0, 1);
+  c.font = '11px sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(12, H - 48, 100, 16); c.fillRect(12, H - 28, 100, 16);
+  c.fillStyle = dashPct >= 1 ? '#bfe8ff' : '#2c4a5c'; c.fillRect(12, H - 48, 100 * dashPct, 16);
+  c.fillStyle = sabrePct >= 1 ? '#7CFF9E' : '#245c34'; c.fillRect(12, H - 28, 100 * sabrePct, 16);
+  c.fillStyle = '#fff'; c.fillText('⚡ ESPAÇO', 18, H - 40); c.fillText('🟢 F', 18, H - 20);
 }
 function banner() {
   if (estado !== 'jogando' || bannerT <= 0) return;
@@ -965,6 +1051,7 @@ function telas() {
     texto('4 MUNDOS', W / 2, 176, 12, '#7af6ff');
     texto('🌲 ❄️ 🌋 🚀', W / 2, 210, 16, '#fff');
     drawFagulha(c, W / 2, 350, .9, performance.now() / 1000, { pose: 'stand' });
+    texto('⚡ ESPAÇO: DASH   🟢 F: SABRE', W / 2, 480, 9, '#bfe8ff');
     if (Math.floor(performance.now() / 500) % 2) texto('APERTE ESPAÇO', W / 2, 540, 14, '#fff');
   } else if (estado === 'gameover') {
     c.fillStyle = 'rgba(30,0,10,.78)'; c.fillRect(0, 0, W, H);
