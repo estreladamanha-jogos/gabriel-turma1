@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Estrela da Manhã — O Caminho do Karatê</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+<!-- Three.js: biblioteca para fazer jogos 3D -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  /* ===== CORES (a --belt muda com a faixa) ===== */
+  :root { --belt: #f5d000; --bg: #0b0d14; --txt: #f3f0e8; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--txt);
+    font-family: 'Inter', sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .hidden { display: none !important; }
+
+  /* ===== TELA DO JOGO ===== */
+  #viewport { position: fixed; inset: 0; }
+  #viewport canvas { display: block; width: 100%; height: 100%; }
+  #vignette { position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.65)); }
+  #damage { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(220,30,30,.75)); }
+  #damage.on { opacity: 1; transition: none; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .4s; z-index: 20; }
+  #fade.on { opacity: 1; transition: none; }
+
+  /* ===== HUD ===== */
+  #hud { position: fixed; inset: 0; pointer-events: none; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+  .label { font-size: 14px; opacity: .7; }
+  #hud-left { position: absolute; left: 16px; top: 16px; width: min(260px, 38vw); }
+  #hp { position: relative; height: 16px; background: rgba(0,0,0,.5); border: 2px solid rgba(255,255,255,.3);
+    border-radius: 4px; overflow: hidden; }
+  #hp-ghost, #hp-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; }
+  #hp-ghost { background: #fff; opacity: .55; transition: width .6s .25s; }
+  #hp-fill { background: linear-gradient(90deg, #c62828, #ef5350); }
+  #lives { margin-top: 6px; font-size: 22px; color: #ef5350; }
+  #hud-top { position: absolute; left: 50%; top: 16px; transform: translateX(-50%); text-align: center; width: min(360px, 40vw); }
+  #objective { font-size: 22px; }
+  #hud-right { position: absolute; right: 16px; top: 16px; text-align: right; }
+  #world-name { font-size: 26px; color: var(--belt); text-shadow: 0 2px 6px #000; }
+  #toast { position: absolute; left: 50%; top: 32%; transform: translate(-50%, -50%) scale(.85); opacity: 0;
+    font-size: clamp(30px, 7vw, 70px); color: var(--belt); text-align: center; text-shadow: 0 4px 20px #000;
+    transition: opacity .3s, transform .3s; width: 92vw; }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #toast small { display: block; font-family: 'Inter', sans-serif; font-size: clamp(14px, 2.4vw, 20px);
+    color: var(--txt); letter-spacing: 0; margin-top: 6px; }
+
+  /* barrinhas de vida dos inimigos */
+  #enemy-bars { position: fixed; inset: 0; pointer-events: none; }
+  .ebar { position: absolute; width: 60px; height: 6px; margin-left: -30px; background: rgba(0,0,0,.6);
+    border: 1px solid rgba(255,255,255,.4); }
+  .ebar.boss { width: 120px; margin-left: -60px; height: 10px; border-color: var(--belt); }
+  .ebar i { display: block; height: 100%; width: 100%; background: #ffb300; }
+
+  /* ===== TELAS (menus) ===== */
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;
+    background: rgba(5,6,10,.72); backdrop-filter: blur(3px); padding: 16px; box-sizing: border-box; }
+  .panel { background: linear-gradient(180deg, #151a26, #0d1018); border: 1px solid rgba(255,255,255,.12);
+    border-top: 4px solid var(--belt); border-radius: 14px; padding: 26px 22px; width: 100%; max-width: 520px;
+    max-height: 100%; overflow: auto; box-sizing: border-box; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .panel.small { max-width: 380px; }
+  .panel.defeat { border-top-color: #e53935; }
+  .kicker { font-family: 'Bebas Neue', sans-serif; letter-spacing: 3px; color: var(--belt); }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: clamp(40px, 10vw, 66px); margin: 4px 0 0; letter-spacing: 2px; line-height: 1; }
+  h2 { font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: clamp(24px, 6vw, 34px); margin: 6px 0 14px; letter-spacing: 2px; }
+  .btn { display: block; width: 100%; margin: 10px 0; padding: 13px; font-family: 'Bebas Neue', sans-serif; font-size: 24px;
+    letter-spacing: 2px; border-radius: 10px; border: 2px solid rgba(255,255,255,.25); background: transparent; color: var(--txt); cursor: pointer; }
+  .btn.primary { background: var(--belt); border-color: var(--belt); color: #111; }
+  .btn:hover { filter: brightness(1.15); }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; text-align: left; font-size: 13px; margin-top: 14px; opacity: .85; }
+  .controls b { color: var(--belt); }
+  .hint { font-size: 12px; opacity: .65; margin-top: 12px; }
+  .touch-only { display: none; }
+
+  /* fileira de faixas no menu */
+  #belts { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 14px 0 4px; }
+  .chip { width: 44px; height: 18px; padding: 0; border-radius: 3px; border: 1px solid rgba(255,255,255,.4); cursor: pointer; font-size: 10px; }
+  .chip.bloq { opacity: .3; cursor: not-allowed; }
+  .c0 { background: #f5d000; } .c1 { background: #e53935; } .c2 { background: #ff9800; } .c3 { background: #43a047; }
+  .c4 { background: #9c27b0; } .c5 { background: #795548; } .c6 { background: #111; }
+  #belt-ribbon { height: 22px; width: 70%; margin: 10px auto 14px; background: var(--belt); border-radius: 4px; box-shadow: 0 0 25px var(--belt); }
+
+  /* ===== CONTROLES DE CELULAR ===== */
+  #touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  #stick { position: absolute; left: 24px; bottom: 24px; width: 130px; height: 130px; border-radius: 50%; pointer-events: auto;
+    background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.25); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; border-radius: 50%; transform: translate(-50%, -50%);
+    background: rgba(255,255,255,.35); }
+  #tbuttons { position: absolute; right: 16px; bottom: 20px; display: grid; grid-template-columns: repeat(2, 66px); gap: 12px; pointer-events: auto; }
+  .tbtn { width: 66px; height: 66px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(0,0,0,.4);
+    color: var(--txt); font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; }
+  #t-atk { background: var(--belt); color: #111; border-color: var(--belt); }
+  #t-pause { position: absolute; right: 16px; top: 110px; width: 44px; height: 44px; font-size: 16px; pointer-events: auto; }
+
+  @media (max-width: 640px) {
+    #hud-top { top: 78px; width: 86vw; }
+    #objective { font-size: 18px; }
+    #world-name { font-size: 20px; }
+  }
+  @media (pointer: coarse) {
+    .controls { display: none; }
+    .touch-only { display: block; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div id="viewport"></div>
+  <div id="vignette"></div>
+  <div id="damage"></div>
+
+  <!-- HUD -->
+  <header id="hud" class="hidden">
+    <div id="hud-left">
+      <div class="label">VIDA</div>
+      <div id="hp"><div id="hp-ghost"></div><div id="hp-fill"></div></div>
+      <div id="lives"></div>
+    </div>
+    <div id="hud-top">
+      <div class="label">OBJETIVO</div>
+      <div id="objective">—</div>
+    </div>
+    <div id="hud-right">
+      <div class="label" id="world-index">FAIXA 1 / 7</div>
+      <div id="world-name">—</div>
+    </div>
+    <div id="toast"></div>
+  </header>
+  <div id="enemy-bars"></div>
+  <div id="fade"></div>
+
+  <!-- TELA INICIAL -->
+  <section id="screen-start" class="screen">
+    <div class="panel">
+      <div class="kicker">FUNDAÇÃO 3D · v0.2</div>
+      <h1>ESTRELA DA MANHÃ</h1>
+      <h2>O CAMINHO DO KARATÊ</h2>
+      <div id="belts"></div>
+      <p class="hint">Toque numa faixa liberada para começar nela.</p>
+      <button id="btn-start" class="btn primary">INICIAR</button>
+      <div class="controls">
+        <div><b>W A S D</b> mover</div>
+        <div><b>Mouse</b> câmera</div>
+        <div><b>Clique esq.</b> atacar (3× = combo)</div>
+        <div><b>Clique dir.</b> defender (segure)</div>
+        <div><b>Shift</b> esquivar</div>
+        <div><b>Espaço</b> saltar</div>
+        <div><b>Esc</b> pausar</div>
+        <div><b>F3</b> ver hitboxes</div>
+      </div>
+      <p class="hint">Sem captura de mouse? Use as setas ← → ↑ ↓ para girar a câmera.<br>Dica CodePen: abra em <i>Full Page View</i> para o mouse funcionar melhor.</p>
+      <p class="hint touch-only">No celular: analógico à esquerda, botões à direita e arraste a tela para girar a câmera.</p>
+    </div>
+  </section>
+
+  <!-- PAUSA -->
+  <section id="screen-pause" class="screen hidden">
+    <div class="panel small">
+      <h2>PAUSA</h2>
+      <button id="btn-resume" class="btn primary">CONTINUAR</button>
+      <button id="btn-restart" class="btn">REINICIAR FAIXA</button>
+      <button id="btn-menu" class="btn">MENU</button>
+    </div>
+  </section>
+
+  <!-- FAIXA CONQUISTADA -->
+  <section id="screen-belt" class="screen hidden">
+    <div class="panel small">
+      <div class="kicker">FAIXA CONQUISTADA</div>
+      <h2 id="belt-title">—</h2>
+      <div id="belt-ribbon"></div>
+      <p id="belt-next"></p>
+      <button id="btn-next" class="btn primary">PRÓXIMA FAIXA</button>
+    </div>
+  </section>
+
+  <!-- DERROTA -->
+  <section id="screen-defeat" class="screen hidden">
+    <div class="panel small defeat">
+      <h2>DERROTA</h2>
+      <p>O caminho ainda não terminou.</p>
+      <button id="btn-retry" class="btn primary">TENTAR NOVAMENTE</button>
+      <button id="btn-menu2" class="btn">MENU</button>
+    </div>
+  </section>
+
+  <!-- VITÓRIA -->
+  <section id="screen-victory" class="screen hidden">
+    <div class="panel small">
+      <div class="kicker">FAIXA PRETA CONQUISTADA</div>
+      <h2>A ESTRELA DA MANHÃ BRILHA</h2>
+      <p id="victory-stats"></p>
+      <button id="btn-again" class="btn primary">JOGAR NOVAMENTE</button>
+      <p class="hint">Você completou o caminho do karatê!</p>
+    </div>
+  </section>
+</main>
+
+<!-- CONTROLES DE TOQUE (só aparecem no celular) -->
+<footer id="touch" class="hidden">
+  <div id="stick"><div id="knob"></div></div>
+  <div id="tbuttons">
+    <button class="tbtn" id="t-def">DEF</button>
+    <button class="tbtn" id="t-atk">ATQ</button>
+    <button class="tbtn" id="t-pulo">PULO</button>
+    <button class="tbtn" id="t-esq">ESQ</button>
+  </div>
+  <button class="tbtn" id="t-pause">II</button>
+</footer>
+
+<script>
+// =====================================================
+// FASES = FAIXAS DO KARATÊ (cada uma mais difícil)
+// total: quantos inimigos | juntos: quantos na arena ao mesmo tempo
+// atacam: quantos podem atacar juntos | vida/dano/vel: força dos inimigos
+// espera: tempo entre ataques | preparo: aviso antes do golpe (menor = mais difícil)
+// bloqueio: chance do inimigo defender seu golpe
+// =====================================================
+const FAIXAS = [
+  { nome:'FAIXA AMARELA',  cor:0xf5d000, css:'#f5d000', ceu:0x26304a, total:3, juntos:1, atacam:1, vida:40,  dano:6,  vel:2.2, espera:2.4, preparo:0.80, bloqueio:0,    dica:'Aprenda o básico: ataque e defenda!' },
+  { nome:'FAIXA VERMELHA', cor:0xd32f2f, css:'#e53935', ceu:0x3a2030, total:4, juntos:2, atacam:1, vida:50,  dano:8,  vel:2.5, espera:2.1, preparo:0.70, bloqueio:0,    dica:'Agora são dois de uma vez!' },
+  { nome:'FAIXA LARANJA',  cor:0xff8f00, css:'#ff9800', ceu:0x40301c, total:5, juntos:2, atacam:1, vida:60,  dano:9,  vel:2.8, espera:1.9, preparo:0.60, bloqueio:0.10, dica:'Cuidado: eles começam a defender.' },
+  { nome:'FAIXA VERDE',    cor:0x2e7d32, css:'#43a047', ceu:0x1c3a2a, total:6, juntos:3, atacam:2, vida:70,  dano:10, vel:3.0, espera:1.7, preparo:0.55, bloqueio:0.15, dica:'Use a esquiva (Shift)!' },
+  { nome:'FAIXA ROXA',     cor:0x7b1fa2, css:'#ba68c8', ceu:0x2a1c40, total:7, juntos:3, atacam:2, vida:85,  dano:12, vel:3.3, espera:1.5, preparo:0.48, bloqueio:0.25, dica:'Ataques bem mais rápidos!' },
+  { nome:'FAIXA MARROM',   cor:0x5d4037, css:'#a1887f', ceu:0x2e2420, total:8, juntos:4, atacam:2, vida:95,  dano:14, vel:3.6, espera:1.3, preparo:0.42, bloqueio:0.30, dica:'Quatro adversários juntos!' },
+  { nome:'FAIXA PRETA',    cor:0x111111, css:'#e0e0e0', ceu:0x120c18, total:5, juntos:2, atacam:2, vida:100, dano:15, vel:3.8, espera:1.2, preparo:0.40, bloqueio:0.35, luz:0xeeeeee, chefe:true, dica:'Vença os guardas e o GRANDE MESTRE!' }
+];
+// o chefe final da faixa preta
+const CHEFE = { vida:360, dano:20, vel:4.2, espera:1.0, preparo:0.38, bloqueio:0.4, escala:1.35 };
+// golpes do combo: soco, soco, chute
+const GOLPES = [
+  { tipo:'soco',  dur:0.32, ini:0.08, fim:0.18, dano:10, alc:1.8 },
+  { tipo:'soco2', dur:0.32, ini:0.08, fim:0.18, dano:12, alc:1.8 },
+  { tipo:'chute', dur:0.50, ini:0.18, fim:0.30, dano:22, alc:2.2, empurra:7 }
+];
+const RAIO = 12.5; // tamanho da arena
+const $ = id => document.getElementById(id);
+const ehToque = matchMedia('(pointer: coarse)').matches;
+
+// ===== CENA 3D =====
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+$('viewport').appendChild(renderer.domElement);
+const tela = renderer.domElement;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x26304a);
+scene.fog = new THREE.Fog(0x26304a, 20, 48);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
+function redimensionar() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', redimensionar);
+redimensionar();
+
+// luzes
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x302018, 0.75));
+const sol = new THREE.DirectionalLight(0xffffff, 0.9);
+sol.position.set(8, 15, 6);
+sol.castShadow = true;
+sol.shadow.mapSize.set(1024, 1024);
+Object.assign(sol.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16 });
+scene.add(sol);
+
+// tatame desenhado num canvas
+function texturaTatame() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d');
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    x.fillStyle = (i + j) % 2 ? '#7a8a4a' : '#8c9c58';
+    x.fillRect(i * 64, j * 64, 64, 64);
+    x.strokeStyle = '#3d4426'; x.lineWidth = 3; x.strokeRect(i * 64, j * 64, 64, 64);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 6);
+  return t;
+}
+const chao = new THREE.Mesh(new THREE.CircleGeometry(14, 48), new THREE.MeshStandardMaterial({ map: texturaTatame(), roughness: .9 }));
+chao.rotation.x = -Math.PI / 2; chao.receiveShadow = true; scene.add(chao);
+const fora = new THREE.Mesh(new THREE.CircleGeometry(70, 32), new THREE.MeshStandardMaterial({ color: 0x2a2018 }));
+fora.rotation.x = -Math.PI / 2; fora.position.y = -.01; scene.add(fora);
+// borda e lanternas mudam para a cor da faixa
+const matBorda = new THREE.MeshStandardMaterial({ color: 0xf5d000, emissive: 0xf5d000, emissiveIntensity: .35 });
+const borda = new THREE.Mesh(new THREE.TorusGeometry(14, .18, 8, 64), matBorda);
+borda.rotation.x = Math.PI / 2; borda.position.y = .1; scene.add(borda);
+const matLanterna = new THREE.MeshStandardMaterial({ color: 0xf5d000, emissive: 0xf5d000, emissiveIntensity: .8 });
+const matPilar = new THREE.MeshStandardMaterial({ color: 0x6b2a1a });
+for (let i = 0; i < 8; i++) {
+  const a = i / 8 * Math.PI * 2;
+  const p = new THREE.Mesh(new THREE.CylinderGeometry(.35, .4, 5, 10), matPilar);
+  p.position.set(Math.sin(a) * 16, 2.5, Math.cos(a) * 16); p.castShadow = true; scene.add(p);
+  const l = new THREE.Mesh(new THREE.BoxGeometry(.7, .9, .7), matLanterna);
+  l.position.set(p.position.x, 5.4, p.position.z); scene.add(l);
+}
+
+// ===== BONECO DO LUTADOR (feito de caixas) =====
+function criarLutador(corGi, corFaixa, escala) {
+  const g = new THREE.Group();
+  g.rotation.order = 'YXZ';
+  const gi = new THREE.MeshStandardMaterial({ color: corGi, roughness: .8 });
+  const pele = new THREE.MeshStandardMaterial({ color: 0xe0b08a });
+  const faixaMat = new THREE.MeshStandardMaterial({ color: corFaixa });
+  const caixa = (w, h, d, m) => { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); me.castShadow = true; return me; };
+  const tronco = caixa(.6, .7, .35, gi); tronco.position.y = 1.25; g.add(tronco);
+  const cinto = caixa(.64, .1, .39, faixaMat); cinto.position.y = .95; g.add(cinto);
+  const ponta = caixa(.08, .3, .05, faixaMat); ponta.position.set(.12, .8, .2); g.add(ponta);
+  const cabeca = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 12), pele); cabeca.position.y = 1.85; cabeca.castShadow = true; g.add(cabeca);
+  // braços e pernas giram no ombro/quadril
+  const membro = (x, y, comp, larg) => {
+    const piv = new THREE.Group(); piv.position.set(x, y, 0);
+    const m = caixa(larg, comp, larg, gi); m.position.y = -comp / 2; piv.add(m);
+    const ponta = new THREE.Mesh(new THREE.SphereGeometry(larg * .6, 8, 6), pele); ponta.position.y = -comp; piv.add(ponta);
+    g.add(piv); return piv;
+  };
+  g.userData = {
+    bracoE: membro(-.4, 1.55, .6, .18), bracoD: membro(.4, 1.55, .6, .18),
+    pernaE: membro(-.16, .9, .85, .22), pernaD: membro(.16, .9, .85, .22),
+    gi, faixaMat
+  };
+  g.scale.setScalar(escala);
+  scene.add(g);
+  return g;
+}
+
+// hitboxes (F3)
+let mostrarHitbox = false;
+const matHB = new THREE.MeshBasicMaterial({ color: 0x00ff88, wireframe: true });
+const hbAtaque = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff3344, wireframe: true }));
+hbAtaque.visible = false; scene.add(hbAtaque);
+function corpoHB(obj) {
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(.45, .45, 2, 10), matHB);
+  h.position.y = 1; h.visible = mostrarHitbox; obj.add(h); obj.userData.hb = h;
+}
+
+// faíscas dos golpes
+const particulas = [];
+const geoP = new THREE.BoxGeometry(.08, .08, .08);
+function faiscas(pos, cor, n) {
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(geoP, new THREE.MeshBasicMaterial({ color: cor }));
+    m.position.copy(pos); scene.add(m);
+    particulas.push({ m, v: new THREE.Vector3((Math.random() - .5) * 6, Math.random() * 5, (Math.random() - .5) * 6), vida: .5 });
+  }
+}
+function atualizarParticulas(dt) {
+  for (let i = particulas.length - 1; i >= 0; i--) {
+    const p = particulas[i];
+    p.v.y -= 15 * dt; p.m.position.addScaledVector(p.v, dt); p.vida -= dt;
+    p.m.scale.setScalar(Math.max(.01, p.vida * 2));
+    if (p.vida <= 0) { scene.remove(p.m); p.m.material.dispose(); particulas.splice(i, 1); }
+  }
+}
+
+// ===== ESTADO DO JOGO =====
+let estado = 'menu', faixaAtual = 0, vidas = 3, hp = 100;
+let inimigos = [], gerados = 0, derrotados = 0, chefeGerado = false, chefeVencido = false, timerSpawn = 0;
+let tremor = 0, parada = 0, ultimaPausa = 0, tokenFase = 0, textoObjetivo = '';
+let stats = { tempo: 0, golpes: 0, defesas: 0 };
+let mouseDef = false, toqueDef = false;
+const teclas = {}, toque = { x: 0, y: 0 };
+const cam = { yaw: 0, pitch: .35, dist: 6.5 };
+
+// jogador (kimono branco)
+const jogObj = criarLutador(0xf4f1ea, 0xf5d000, 1);
+corpoHB(jogObj);
+const jog = {
+  pos: new THREE.Vector3(), kb: new THREE.Vector3(), mov: new THREE.Vector3(), esqDir: new THREE.Vector3(),
+  vy: 0, noChao: true, ang: Math.PI, alvoAng: Math.PI, passo: 0,
+  ataque: 0, tAtaque: 0, golpe: null, comboPasso: 0, comboJanela: 0, filaCombo: false, acertou: new Set(),
+  defendendo: false, esquiva: 0, esqCd: 0, invul: 0
+};
+
+// progresso salvo (faixas liberadas)
+let liberada = 0;
+try { liberada = Number(localStorage.getItem('emk-faixa')) || 0; } catch (e) {}
+function salvar(i) {
+  liberada = Math.max(liberada, i);
+  try { localStorage.setItem('emk-faixa', liberada); } catch (e) {}
+  desenharChips();
+}
+function desenharChips() {
+  const box = $('belts'); box.innerHTML = '';
+  FAIXAS.forEach((f, i) => {
+    const b = document.createElement('button');
+    b.className = 'chip c' + i + (i > liberada ? ' bloq' : '');
+    b.title = f.nome; b.disabled = i > liberada; b.textContent = i > liberada ? '🔒' : '';
+    b.addEventListener('click', () => iniciarJogo(i));
+    box.appendChild(b);
+  });
+}
+desenharChips();
+
+// ===== FUNÇÕES DE AJUDA =====
+function lerpAng(a, b, t) {
+  const d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return a + d * t;
+}
+function limitarArena(p) {
+  const L = Math.hypot(p.x, p.z);
+  if (L > RAIO) { p.x *= RAIO / L; p.z *= RAIO / L; }
+}
+function inimigoMaisPerto(max) {
+  let melhor = null, md = max;
+  for (const e of inimigos) {
+    if (e.estado === 'morto') continue;
+    const d = Math.hypot(e.pos.x - jog.pos.x, e.pos.z - jog.pos.z);
+    if (d < md) { md = d; melhor = e; }
+  }
+  return melhor;
+}
+let toastTimer = null;
+function mostrarToast(html, ms) {
+  const t = $('toast'); t.innerHTML = html; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+function atualizarHP(instantaneo) {
+  $('hp-fill').style.width = hp + '%';
+  if (instantaneo) $('hp-ghost').style.width = hp + '%';
+  else setTimeout(() => { $('hp-ghost').style.width = hp + '%'; }, 0);
+}
+function atualizarVidas() { $('lives').textContent = '♥'.repeat(Math.max(0, vidas)) + '♡'.repeat(Math.max(0, 3 - vidas)); }
+function esconderTelas() { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); }
+function mostrarTela(id) { esconderTelas(); $(id).classList.remove('hidden'); }
+function esconderHUD() { $('hud').classList.add('hidden'); $('touch').classList.add('hidden'); }
+function travarMouse() {
+  if (ehToque) return;
+  try { const p = tela.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function soltarMouse() { if (document.pointerLockElement) document.exitPointerLock(); }
+
+// ===== COMEÇAR / FASES =====
+function iniciarJogo(i) {
+  vidas = 3; stats = { tempo: 0, golpes: 0, defesas: 0 };
+  iniciarFase(i);
+}
+function iniciarFase(i) {
+  tokenFase++;
+  faixaAtual = i;
+  const f = FAIXAS[i];
+  inimigos.slice().forEach(remover);
+  gerados = derrotados = 0; chefeGerado = chefeVencido = false; timerSpawn = 1.5;
+  hp = 100;
+  jog.pos.set(0, 0, 0); jog.kb.set(0, 0, 0); jog.vy = 0;
+  jog.ataque = 0; jog.filaCombo = false; jog.esquiva = 0; jog.invul = 0;
+  jog.ang = jog.alvoAng = Math.PI; cam.yaw = 0; cam.pitch = .35;
+  hbAtaque.visible = false; mouseDef = toqueDef = false;
+  // pinta a arena com a cor da faixa
+  document.documentElement.style.setProperty('--belt', f.css);
+  const luz = f.luz || f.cor;
+  matBorda.color.setHex(luz); matBorda.emissive.setHex(luz);
+  matLanterna.color.setHex(luz); matLanterna.emissive.setHex(luz);
+  scene.background.setHex(f.ceu); scene.fog.color.setHex(f.ceu);
+  jogObj.userData.faixaMat.color.setHex(f.cor);
+  $('world-index').textContent = `FAIXA ${i + 1} / ${FAIXAS.length}`;
+  $('world-name').textContent = f.nome;
+  atualizarHP(true); atualizarVidas();
+  esconderTelas();
+  $('hud').classList.remove('hidden');
+  $('touch').classList.toggle('hidden', !ehToque);
+  $('fade').classList.add('on');
+  setTimeout(() => $('fade').classList.remove('on'), 60);
+  mostrarToast(`${f.nome}<small>${f.dica}</small>`, 2600);
+  estado = 'jogando';
+  travarMouse();
+}
+function irMenu() {
+  tokenFase++;
+  estado = 'menu'; inimigos.slice().forEach(remover);
+  esconderHUD(); soltarMouse(); mostrarTela('screen-start');
+}
+
+// cria um inimigo na borda da arena
+function gerarInimigo(chefe) {
+  const f = FAIXAS[faixaAtual];
+  const s = chefe ? CHEFE : f;
+  const esc = chefe ? CHEFE.escala : 1;
+  const a = Math.random() * Math.PI * 2;
+  const obj = criarLutador(chefe ? 0x5a0d0d : 0x30343f, chefe ? 0x0a0a0a : f.cor, esc);
+  corpoHB(obj);
+  const barra = document.createElement('div');
+  barra.className = 'ebar' + (chefe ? ' boss' : '');
+  barra.innerHTML = '<i></i>';
+  $('enemy-bars').appendChild(barra);
+  const e = {
+    obj, barra, fill: barra.firstChild, chefe, escala: esc,
+    pos: new THREE.Vector3(Math.sin(a) * 11, 0, Math.cos(a) * 11), kb: new THREE.Vector3(), ang: a + Math.PI,
+    vida: s.vida, vidaMax: s.vida, dano: s.dano, vel: s.vel, espera: s.espera, preparo: s.preparo, bloqueio: s.bloqueio,
+    estado: 'perseguir', t: 0, cd: 1 + Math.random(), lado: Math.random() < .5 ? -1 : 1,
+    flash: 0, defesa: 0, passo: Math.random() * 6, golpes: 0, giro: false
+  };
+  inimigos.push(e);
+  if (!chefe) gerados++;
+  faiscas(new THREE.Vector3(e.pos.x, 1, e.pos.z), chefe ? 0xff3333 : f.cor, 20);
+}
+function remover(e) {
+  scene.remove(e.obj);
+  e.obj.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  e.barra.remove();
+  const k = inimigos.indexOf(e);
+  if (k >= 0) inimigos.splice(k, 1);
+}
+
+// controla quantos inimigos aparecem e quando a fase acaba
+function atualizarFase(dt) {
+  const f = FAIXAS[faixaAtual];
+  const vivos = inimigos.filter(e => e.estado !== 'morto').length;
+  timerSpawn -= dt;
+  if (gerados < f.total && vivos < f.juntos && timerSpawn <= 0) { gerarInimigo(false); timerSpawn = 1.2; }
+  if (f.chefe && !chefeGerado && derrotados >= f.total) {
+    chefeGerado = true; gerarInimigo(true);
+    mostrarToast('GRANDE MESTRE!<small>Só o chute (3º golpe) interrompe o ataque dele!</small>', 2600);
+  }
+  const txt = chefeGerado ? 'DERROTE O GRANDE MESTRE' : `DERROTE OS OPONENTES ${derrotados}/${f.total}`;
+  if (txt !== textoObjetivo) { textoObjetivo = txt; $('objective').textContent = txt; }
+  const venceu = f.chefe ? chefeVencido : derrotados >= f.total;
+  if (venceu) concluirFase();
+}
+function concluirFase() {
+  estado = 'transicao';
+  const f = FAIXAS[faixaAtual], tk = tokenFase;
+  salvar(Math.min(faixaAtual + 1, FAIXAS.length - 1));
+  mostrarToast(`${f.nome}<small>CONQUISTADA!</small>`, 2200);
+  setTimeout(() => {
+    if (tk !== tokenFase) return;
+    estado = 'entre-fases'; soltarMouse(); esconderHUD();
+    if (faixaAtual === FAIXAS.length - 1) {
+      const m = Math.floor(stats.tempo / 60), s = String(Math.floor(stats.tempo % 60)).padStart(2, '0');
+      $('victory-stats').textContent = `Tempo: ${m}:${s} · Golpes certeiros: ${stats.golpes} · Defesas: ${stats.defesas}`;
+      mostrarTela('screen-victory');
+    } else {
+      const p = FAIXAS[faixaAtual + 1];
+      $('belt-title').textContent = f.nome;
+      $('belt-next').textContent = `Próxima: ${p.nome} — ${p.dica}`;
+      mostrarTela('screen-belt');
+    }
+  }, 2400);
+}
+
+// ===== AÇÕES DO JOGADOR =====
+function atacar() {
+  if (estado !== 'jogando' || jog.esquiva > 0 || jog.defendendo) return;
+  if (jog.ataque > 0) { jog.filaCombo = true; return; } // guarda o próximo golpe do combo
+  iniciarGolpe();
+}
+function iniciarGolpe() {
+  if (jog.comboJanela <= 0) jog.comboPasso = 0;
+  jog.golpe = GOLPES[jog.comboPasso];
+  jog.ataque = jog.golpe.dur; jog.tAtaque = 0; jog.acertou = new Set();
+  jog.comboPasso = (jog.comboPasso + 1) % 3; jog.comboJanela = 0; jog.filaCombo = false;
+  // mira automática no inimigo mais perto
+  const alvo = inimigoMaisPerto(3.5);
+  if (alvo) jog.ang = jog.alvoAng = Math.atan2(alvo.pos.x - jog.pos.x, alvo.pos.z - jog.pos.z);
+}
+function pular() {
+  if (estado !== 'jogando' || !jog.noChao) return;
+  jog.vy = 8; jog.noChao = false;
+}
+function esquivar() {
+  if (estado !== 'jogando' || jog.esqCd > 0 || jog.esquiva > 0) return;
+  const d = jog.mov.clone();
+  if (d.lengthSq() < .01) d.set(-Math.sin(jog.ang), 0, -Math.cos(jog.ang)); // sem direção: pula pra trás
+  jog.esqDir.copy(d.normalize());
+  jog.esquiva = .25; jog.esqCd = .7;
+  jog.ataque = 0; jog.filaCombo = false; hbAtaque.visible = false;
+}
+function alternarHitbox() {
+  mostrarHitbox = !mostrarHitbox;
+  jogObj.userData.hb.visible = mostrarHitbox;
+  inimigos.forEach(e => { e.obj.userData.hb.visible = mostrarHitbox; });
+  if (estado === 'jogando') mostrarToast(mostrarHitbox ? 'HITBOXES ON' : 'HITBOXES OFF', 800);
+}
+
+// jogador leva dano
+function danoJogador(d, e) {
+  if (jog.invul > 0 || jog.esquiva > 0 || estado !== 'jogando') return;
+  const nx = jog.pos.x - e.pos.x, nz = jog.pos.z - e.pos.z, L = Math.hypot(nx, nz) || 1;
+  const olhando = Math.sin(jog.ang) * (-nx / L) + Math.cos(jog.ang) * (-nz / L);
+  const ponto = new THREE.Vector3(jog.pos.x, jog.pos.y + 1.3, jog.pos.z);
+  if (jog.defendendo && olhando > .2) {
+    // defendeu: leva só um pouquinho
+    d *= .15; stats.defesas++;
+    faiscas(ponto, 0x66ccff, 10);
+    jog.kb.set(nx / L * 3, 0, nz / L * 3);
+  } else {
+    faiscas(ponto, 0xff4444, 12);
+    jog.kb.set(nx / L * 6, 0, nz / L * 6);
+    tremor = .3;
+    $('damage').classList.add('on'); setTimeout(() => $('damage').classList.remove('on'), 80);
+    jog.ataque = 0; jog.filaCombo = false; hbAtaque.visible = false;
+  }
+  hp = Math.max(0, hp - d);
+  atualizarHP(false);
+  if (hp <= 0) perderVida();
+}
+function perderVida() {
+  vidas--; atualizarVidas();
+  if (vidas <= 0) {
+    estado = 'fim';
+    const tk = tokenFase;
+    mostrarToast('K.O.', 1200);
+    setTimeout(() => { if (tk !== tokenFase) return; soltarMouse(); esconderHUD(); mostrarTela('screen-defeat'); }, 1300);
+    return;
+  }
+  hp = 100; atualizarHP(true); jog.invul = 2;
+  mostrarToast('LEVANTE-SE!', 1200);
+  // empurra todo mundo pra longe
+  for (const e of inimigos) {
+    if (e.estado === 'morto') continue;
+    const dx = e.pos.x - jog.pos.x, dz = e.pos.z - jog.pos.z, L = Math.hypot(dx, dz) || 1;
+    e.kb.set(dx / L * 9, 0, dz / L * 9); e.estado = 'atordoado'; e.t = .8;
+  }
+}
+
+// inimigo leva dano
+function acertarInimigo(e, g, fwd) {
+  const ponto = new THREE.Vector3(e.pos.x, 1.3 * e.escala, e.pos.z);
+  if (e.estado === 'perseguir' && Math.random() < e.bloqueio) {
+    // inimigo defendeu!
+    e.vida -= g.dano * .15; e.defesa = .35;
+    e.kb.copy(fwd).multiplyScalar(2);
+    faiscas(ponto, 0x66ccff, 8);
+  } else {
+    e.vida -= g.dano; stats.golpes++; e.flash = .1;
+    // o chefe só é interrompido pelo chute
+    const armadura = e.chefe && g.tipo !== 'chute' && (e.estado === 'preparar' || e.estado === 'golpe');
+    if (!armadura) { e.estado = 'atordoado'; e.t = (g.tipo === 'chute' ? .55 : .3) * (e.chefe ? .5 : 1); }
+    e.kb.copy(fwd).multiplyScalar((g.empurra || 2.5) * (e.chefe ? .4 : 1));
+    faiscas(ponto, 0xffcc33, g.tipo === 'chute' ? 16 : 9);
+    parada = g.tipo === 'chute' ? .08 : .04;
+    tremor = Math.max(tremor, g.tipo === 'chute' ? .2 : .08);
+  }
+  if (e.vida <= 0) morrer(e);
+}
+function morrer(e) {
+  e.estado = 'morto'; e.t = 1.2; e.vida = 0;
+  e.barra.classList.add('hidden');
+  if (e.chefe) chefeVencido = true; else derrotados++;
+}
+
+// ===== ATUALIZA O JOGADOR =====
+function atualizarJogador(dt) {
+  const ud = jogObj.userData;
+  // direção dos controles
+  let ix = 0, iz = 0;
+  if (estado === 'jogando') {
+    if (teclas.KeyW) iz += 1; if (teclas.KeyS) iz -= 1;
+    if (teclas.KeyD) ix += 1; if (teclas.KeyA) ix -= 1;
+    ix += toque.x; iz += toque.y;
+  }
+  const len = Math.hypot(ix, iz); if (len > 1) { ix /= len; iz /= len; }
+  // anda em relação à câmera
+  const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw), rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
+  const mx = fx * iz + rx * ix, mz = fz * iz + rz * ix;
+  jog.mov.set(mx, 0, mz);
+  jog.defendendo = (mouseDef || toqueDef) && jog.esquiva <= 0 && estado === 'jogando';
+  jog.esqCd -= dt; jog.invul -= dt; jog.comboJanela -= dt;
+
+  let vel = 5.5;
+  if (jog.defendendo) vel = 2.2;
+  if (jog.ataque > 0) vel = 1.2;
+  if (jog.esquiva > 0) { jog.esquiva -= dt; jog.pos.addScaledVector(jog.esqDir, 13 * dt); }
+  else { jog.pos.x += mx * vel * dt; jog.pos.z += mz * vel * dt; }
+  jog.pos.addScaledVector(jog.kb, dt); jog.kb.multiplyScalar(Math.max(0, 1 - 8 * dt));
+  // gravidade e pulo
+  jog.vy -= 22 * dt; jog.pos.y += jog.vy * dt;
+  if (jog.pos.y <= 0) { jog.pos.y = 0; jog.vy = 0; jog.noChao = true; }
+  limitarArena(jog.pos);
+
+  // para onde o jogador olha
+  if (jog.ataque <= 0 && jog.esquiva <= 0 && (mx || mz)) jog.alvoAng = Math.atan2(mx, mz);
+  if (jog.defendendo) { const a = inimigoMaisPerto(5); if (a) jog.alvoAng = Math.atan2(a.pos.x - jog.pos.x, a.pos.z - jog.pos.z); }
+  jog.ang = lerpAng(jog.ang, jog.alvoAng, Math.min(1, dt * 14));
+
+  // golpe em andamento
+  if (jog.ataque > 0) {
+    const g = jog.golpe;
+    jog.tAtaque += dt; jog.ataque -= dt;
+    const ativo = jog.tAtaque >= g.ini && jog.tAtaque <= g.fim;
+    const fwd = new THREE.Vector3(Math.sin(jog.ang), 0, Math.cos(jog.ang));
+    const centro = jog.pos.clone().addScaledVector(fwd, g.alc * .6); centro.y += 1.1;
+    const r = g.alc * .5;
+    hbAtaque.visible = mostrarHitbox && ativo;
+    hbAtaque.position.copy(centro); hbAtaque.scale.setScalar(r);
+    if (ativo) {
+      for (const e of inimigos.slice()) {
+        if (e.estado === 'morto' || jog.acertou.has(e)) continue;
+        const d = Math.hypot(e.pos.x - centro.x, e.pos.z - centro.z);
+        if (d < r + .45 * e.escala && Math.abs(1 * e.escala - centro.y) < 1.6) { jog.acertou.add(e); acertarInimigo(e, g, fwd); }
+      }
+    }
+    if (jog.ataque <= 0) {
+      hbAtaque.visible = false; jog.comboJanela = .45;
+      if (jog.filaCombo) iniciarGolpe();
+    }
+  }
+
+  // animação do boneco
+  const andando = Math.hypot(mx, mz) > .1 && jog.ataque <= 0;
+  if (andando) jog.passo += dt * 10;
+  const sw = andando ? Math.sin(jog.passo) * .7 : 0;
+  ud.pernaE.rotation.x = sw; ud.pernaD.rotation.x = -sw;
+  ud.bracoE.rotation.set(-.4 - sw * .4, 0, 0); ud.bracoD.rotation.set(-.4 + sw * .4, 0, 0);
+  if (jog.defendendo) { ud.bracoE.rotation.set(-1.4, 0, -.6); ud.bracoD.rotation.set(-1.4, 0, .6); }
+  if (jog.ataque > 0) {
+    const k = Math.sin(Math.min(1, jog.tAtaque / jog.golpe.dur * 1.6) * Math.PI);
+    if (jog.golpe.tipo === 'soco') ud.bracoD.rotation.x = -Math.PI / 2 * k;
+    else if (jog.golpe.tipo === 'soco2') ud.bracoE.rotation.x = -Math.PI / 2 * k;
+    else { ud.pernaD.rotation.x = -1.5 * k; ud.pernaE.rotation.x = .2 * k; ud.bracoE.rotation.x = .5 * k; }
+  }
+  jogObj.position.copy(jog.pos);
+  jogObj.rotation.y = jog.ang;
+  jogObj.rotation.x = jog.esquiva > 0 ? .4 : 0;
+  jogObj.visible = !(jog.invul > 0 && Math.floor(performance.now() / 60) % 2);
+}
+
+// ===== INTELIGÊNCIA DOS INIMIGOS =====
+function podeAtacar() {
+  const n = inimigos.filter(o => o.estado === 'preparar' || o.estado === 'golpe').length;
+  return n < FAIXAS[faixaAtual].atacam;
+}
+function golpeInimigo(e) {
+  e.golpes++;
+  const dx = jog.pos.x - e.pos.x, dz = jog.pos.z - e.pos.z, dist = Math.hypot(dx, dz) || .01;
+  if (e.giro) {
+    // chute giratório do chefe: acerta em volta toda
+    faiscas(new THREE.Vector3(e.pos.x, 1, e.pos.z), 0xff3333, 24); tremor = .25;
+    if (dist < 3 && jog.pos.y < 1.2) danoJogador(e.dano * 1.3, e);
+    return;
+  }
+  const olhando = (Math.sin(e.ang) * dx + Math.cos(e.ang) * dz) / dist;
+  if (dist < 1.9 * e.escala && olhando > .4 && jog.pos.y < 1.2) danoJogador(e.dano, e);
+}
+function atualizarInimigo(e, dt) {
+  const ud = e.obj.userData;
+  const dx = jog.pos.x - e.pos.x, dz = jog.pos.z - e.pos.z, dist = Math.hypot(dx, dz) || .001;
+  const nx = dx / dist, nz = dz / dist;
+  const alcance = 1.7 * e.escala;
+  e.pos.addScaledVector(e.kb, dt); e.kb.multiplyScalar(Math.max(0, 1 - 6 * dt));
+  e.flash -= dt; e.defesa -= dt;
+  let andando = false;
+
+  switch (e.estado) {
+    case 'morto':
+      // cai pra trás e some
+      e.t -= dt;
+      e.obj.rotation.x = Math.max(-Math.PI / 2, e.obj.rotation.x - dt * 5);
+      e.obj.position.copy(e.pos);
+      if (e.t < .3) e.obj.position.y = -(.3 - e.t) * 2;
+      if (e.t <= 0) remover(e);
+      return;
+    case 'atordoado':
+      e.t -= dt; if (e.t <= 0) e.estado = 'perseguir';
+      break;
+    case 'perseguir':
+      e.cd -= dt;
+      if (dist > alcance * .9) { e.pos.x += nx * e.vel * dt; e.pos.z += nz * e.vel * dt; }
+      else { // anda em volta do jogador
+        e.pos.x += -nz * e.lado * e.vel * .4 * dt; e.pos.z += nx * e.lado * e.vel * .4 * dt;
+        if (Math.random() < dt * .5) e.lado *= -1;
+      }
+      andando = true;
+      if (dist < alcance * 1.15 && e.cd <= 0 && podeAtacar()) {
+        e.giro = e.chefe && e.golpes % 3 === 2; // todo 3º ataque do chefe é giratório
+        e.estado = 'preparar'; e.t = e.preparo * (e.giro ? 1.6 : 1);
+      }
+      break;
+    case 'preparar':
+      e.t -= dt;
+      if (e.t <= 0) { e.estado = 'golpe'; e.t = e.giro ? .3 : .18; golpeInimigo(e); }
+      break;
+    case 'golpe':
+      e.t -= dt; if (e.t <= 0) { e.estado = 'recuperar'; e.t = .35; }
+      break;
+    case 'recuperar':
+      e.t -= dt;
+      if (e.t <= 0) {
+        e.estado = 'perseguir';
+        const furia = e.chefe && e.vida < e.vidaMax / 2 ? .6 : 1; // chefe fica mais rápido com pouca vida
+        e.cd = e.espera * furia * (.6 + Math.random() * .8);
+      }
+      break;
+  }
+  if (e.estado !== 'atordoado') e.ang = lerpAng(e.ang, Math.atan2(nx, nz), Math.min(1, dt * (e.estado === 'preparar' ? 4 : 8)));
+  limitarArena(e.pos);
+
+  // brilho: branco = levou golpe, vermelho = vai atacar!
+  ud.gi.emissive.setHex(e.flash > 0 ? 0xffffff : e.estado === 'preparar' ? (e.giro ? 0xaa3300 : 0x771111) : 0x000000);
+
+  // animação
+  if (andando) e.passo += dt * 9;
+  const sw = andando ? Math.sin(e.passo) * .6 : 0;
+  ud.pernaE.rotation.x = sw; ud.pernaD.rotation.x = -sw;
+  ud.bracoE.rotation.set(-.5, 0, 0); ud.bracoD.rotation.set(-.5, 0, 0);
+  if (e.estado === 'preparar') ud.bracoD.rotation.x = .9;
+  if (e.estado === 'golpe') { if (e.giro) ud.pernaD.rotation.x = -1.4; else ud.bracoD.rotation.x = -Math.PI / 2; }
+  if (e.estado === 'atordoado') ud.bracoE.rotation.x = ud.bracoD.rotation.x = .4;
+  if (e.defesa > 0) { ud.bracoE.rotation.set(-1.4, 0, -.6); ud.bracoD.rotation.set(-1.4, 0, .6); }
+  e.obj.position.copy(e.pos);
+  e.obj.rotation.y = e.ang + (e.estado === 'golpe' && e.giro ? (1 - e.t / .3) * Math.PI * 2 : 0);
+}
+// não deixa os bonecos ficarem um dentro do outro
+function separar() {
+  const vivos = inimigos.filter(e => e.estado !== 'morto');
+  for (let i = 0; i < vivos.length; i++) {
+    const a = vivos[i];
+    for (let j = i + 1; j < vivos.length; j++) {
+      const b = vivos[j];
+      const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz) || .01, min = .55 * (a.escala + b.escala);
+      if (d < min) { const p = (min - d) / 2; a.pos.x -= dx / d * p; a.pos.z -= dz / d * p; b.pos.x += dx / d * p; b.pos.z += dz / d * p; }
+    }
+    const dx = a.pos.x - jog.pos.x, dz = a.pos.z - jog.pos.z, d = Math.hypot(dx, dz) || .01, min = .5 + .45 * a.escala;
+    if (d < min && jog.pos.y < 1) { a.pos.x += dx / d * (min - d); a.pos.z += dz / d * (min - d); }
+  }
+}
+
+// ===== CÂMERA E BARRAS =====
+function atualizarCamera(dt) {
+  if (estado === 'jogando') {
+    if (teclas.ArrowLeft) cam.yaw += 2.2 * dt;
+    if (teclas.ArrowRight) cam.yaw -= 2.2 * dt;
+    if (teclas.ArrowUp) cam.pitch -= 1.2 * dt;
+    if (teclas.ArrowDown) cam.pitch += 1.2 * dt;
+  }
+  cam.pitch = Math.min(1.1, Math.max(.05, cam.pitch));
+  const alvo = new THREE.Vector3(jog.pos.x, jog.pos.y * .5 + 1.4, jog.pos.z);
+  const cp = Math.cos(cam.pitch);
+  camera.position.set(alvo.x + Math.sin(cam.yaw) * cp * cam.dist, alvo.y + Math.sin(cam.pitch) * cam.dist, alvo.z + Math.cos(cam.yaw) * cp * cam.dist);
+  if (tremor > 0) {
+    tremor -= dt;
+    camera.position.x += (Math.random() - .5) * tremor;
+    camera.position.y += (Math.random() - .5) * tremor;
+  }
+  camera.lookAt(alvo);
+}
+const vTmp = new THREE.Vector3();
+function atualizarBarras() {
+  for (const e of inimigos) {
+    if (e.estado === 'morto') continue;
+    vTmp.set(e.pos.x, 2.4 * e.escala, e.pos.z).project(camera);
+    const vis = vTmp.z < 1;
+    e.barra.classList.toggle('hidden', !vis);
+    if (vis) {
+      e.barra.style.left = (vTmp.x * .5 + .5) * innerWidth + 'px';
+      e.barra.style.top = (-vTmp.y * .5 + .5) * innerHeight + 'px';
+      e.fill.style.width = Math.max(0, e.vida / e.vidaMax * 100) + '%';
+    }
+  }
+}
+
+// ===== PAUSA =====
+function pausar() {
+  if (estado !== 'jogando') return;
+  estado = 'pausa'; ultimaPausa = Date.now(); mouseDef = toqueDef = false;
+  mostrarTela('screen-pause'); soltarMouse();
+}
+function continuar() {
+  if (estado !== 'pausa') return;
+  esconderTelas(); estado = 'jogando'; ultimaPausa = Date.now(); travarMouse();
+}
+
+// ===== TECLADO E MOUSE =====
+addEventListener('keydown', ev => {
+  teclas[ev.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F3'].includes(ev.code)) ev.preventDefault();
+  if (ev.repeat) return;
+  if (ev.code === 'Escape') {
+    if (Date.now() - ultimaPausa < 300) return;
+    if (estado === 'jogando') pausar(); else if (estado === 'pausa') continuar();
+  }
+  if (ev.code === 'F3') alternarHitbox();
+  if (ev.code === 'Space') pular();
+  if (ev.code === 'ShiftLeft' || ev.code === 'ShiftRight') esquivar();
+});
+addEventListener('keyup', ev => { teclas[ev.code] = false; });
+addEventListener('blur', () => { for (const k in teclas) teclas[k] = false; mouseDef = false; });
+tela.addEventListener('mousedown', ev => {
+  if (estado !== 'jogando' || ehToque) return;
+  if (document.pointerLockElement !== tela) travarMouse();
+  if (ev.button === 0) atacar();
+  if (ev.button === 2) mouseDef = true;
+});
+addEventListener('mouseup', ev => { if (ev.button === 2) mouseDef = false; });
+tela.addEventListener('contextmenu', ev => ev.preventDefault());
+addEventListener('mousemove', ev => {
+  if (document.pointerLockElement === tela && estado === 'jogando') {
+    cam.yaw -= ev.movementX * .0025;
+    cam.pitch += ev.movementY * .002;
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement !== tela && estado === 'jogando') pausar();
+});
+
+// ===== CONTROLES DE TOQUE =====
+const stick = $('stick'), knob = $('knob');
+let stickId = null;
+function moverStick(t) {
+  const r = stick.getBoundingClientRect();
+  let x = (t.clientX - (r.left + r.width / 2)) / (r.width / 2);
+  let y = (t.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  const L = Math.hypot(x, y); if (L > 1) { x /= L; y /= L; }
+  toque.x = x; toque.y = -y;
+  knob.style.transform = `translate(calc(-50% + ${x * 40}px), calc(-50% + ${y * 40}px))`;
+}
+stick.addEventListener('touchstart', ev => { ev.preventDefault(); const t = ev.changedTouches[0]; stickId = t.identifier; moverStick(t); }, { passive: false });
+stick.addEventListener('touchmove', ev => { ev.preventDefault(); for (const t of ev.changedTouches) if (t.identifier === stickId) moverStick(t); }, { passive: false });
+function soltarStick(ev) {
+  for (const t of ev.changedTouches) if (t.identifier === stickId) {
+    stickId = null; toque.x = toque.y = 0; knob.style.transform = 'translate(-50%, -50%)';
+  }
+}
+stick.addEventListener('touchend', soltarStick);
+stick.addEventListener('touchcancel', soltarStick);
+// arrastar a tela gira a câmera
+let camToque = null, camX = 0, camY = 0;
+tela.addEventListener('touchstart', ev => {
+  for (const t of ev.changedTouches) if (camToque === null) { camToque = t.identifier; camX = t.clientX; camY = t.clientY; }
+}, { passive: true });
+tela.addEventListener('touchmove', ev => {
+  for (const t of ev.changedTouches) if (t.identifier === camToque) {
+    cam.yaw -= (t.clientX - camX) * .008; cam.pitch += (t.clientY - camY) * .005;
+    camX = t.clientX; camY = t.clientY;
+  }
+}, { passive: true });
+const fimCam = ev => { for (const t of ev.changedTouches) if (t.identifier === camToque) camToque = null; };
+tela.addEventListener('touchend', fimCam);
+tela.addEventListener('touchcancel', fimCam);
+function botao(id, ini, fim) {
+  const b = $(id);
+  b.addEventListener('touchstart', ev => { ev.preventDefault(); ini(); }, { passive: false });
+  if (fim) { b.addEventListener('touchend', ev => { ev.preventDefault(); fim(); }); b.addEventListener('touchcancel', fim); }
+}
+botao('t-atk', atacar);
+botao('t-def', () => { toqueDef = true; }, () => { toqueDef = false; });
+botao('t-pulo', pular);
+botao('t-esq', esquivar);
+botao('t-pause', pausar);
+
+// ===== BOTÕES DAS TELAS =====
+$('btn-start').addEventListener('click', () => iniciarJogo(0));
+$('btn-resume').addEventListener('click', continuar);
+$('btn-restart').addEventListener('click', () => iniciarJogo(faixaAtual));
+$('btn-menu').addEventListener('click', irMenu);
+$('btn-menu2').addEventListener('click', irMenu);
+$('btn-retry').addEventListener('click', () => iniciarJogo(faixaAtual));
+$('btn-next').addEventListener('click', () => { vidas = Math.min(3, vidas + 1); iniciarFase(faixaAtual + 1); });
+$('btn-again').addEventListener('click', () => iniciarJogo(0));
+
+// ===== LOOP PRINCIPAL =====
+let ultimo = performance.now();
+function loop(agora) {
+  requestAnimationFrame(loop);
+  let dt = Math.min(.05, (agora - ultimo) / 1000);
+  ultimo = agora;
+  if (parada > 0) { parada -= dt; dt = 0; } // congelada rápida no impacto
+  if (estado === 'jogando' || estado === 'transicao') {
+    if (estado === 'jogando') { stats.tempo += dt; atualizarFase(dt); }
+    atualizarJogador(dt);
+    for (const e of inimigos.slice()) atualizarInimigo(e, dt);
+    separar();
+  } else if (estado === 'menu') {
+    cam.yaw += dt * .15; // câmera girando no menu
+  }
+  atualizarParticulas(dt);
+  atualizarCamera(dt);
+  atualizarBarras();
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
