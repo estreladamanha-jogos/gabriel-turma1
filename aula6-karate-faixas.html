@@ -47,12 +47,14 @@
   #toast small { display: block; font-family: 'Inter', sans-serif; font-size: clamp(14px, 2.4vw, 20px);
     color: var(--txt); letter-spacing: 0; margin-top: 6px; }
 
-  /* barrinhas de vida dos inimigos */
+  /* barrinhas de vida dos inimigos e bonecos */
   #enemy-bars { position: fixed; inset: 0; pointer-events: none; }
   .ebar { position: absolute; width: 60px; height: 6px; margin-left: -30px; background: rgba(0,0,0,.6);
     border: 1px solid rgba(255,255,255,.4); }
   .ebar.boss { width: 120px; margin-left: -60px; height: 10px; border-color: var(--belt); }
+  .ebar.dummy { width: 44px; margin-left: -22px; }
   .ebar i { display: block; height: 100%; width: 100%; background: #ffb300; }
+  .ebar.dummy i { background: #c58a4a; }
 
   /* ===== TELAS (menus) ===== */
   .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;
@@ -134,7 +136,7 @@
   <!-- TELA INICIAL -->
   <section id="screen-start" class="screen">
     <div class="panel">
-      <div class="kicker">FUNDAÇÃO 3D · v0.2</div>
+      <div class="kicker">FUNDAÇÃO 3D · v0.3</div>
       <h1>ESTRELA DA MANHÃ</h1>
       <h2>O CAMINHO DO KARATÊ</h2>
       <div id="belts"></div>
@@ -150,7 +152,7 @@
         <div><b>Esc</b> pausar</div>
         <div><b>F3</b> ver hitboxes</div>
       </div>
-      <p class="hint">Sem captura de mouse? Use as setas ← → ↑ ↓ para girar a câmera.<br>Dica CodePen: abra em <i>Full Page View</i> para o mouse funcionar melhor.</p>
+      <p class="hint">Quebre os bonecos de treino, depois lute! Pule os bastões giratórios e as caixas.<br>Sem captura de mouse? Use as setas ← → ↑ ↓ para girar a câmera.<br>Dica CodePen: abra em <i>Full Page View</i> para o mouse funcionar melhor.</p>
       <p class="hint touch-only">No celular: analógico à esquerda, botões à direita e arraste a tela para girar a câmera.</p>
     </div>
   </section>
@@ -213,19 +215,21 @@
 <script>
 // =====================================================
 // FASES = FAIXAS DO KARATÊ (cada uma mais difícil)
+// bonecos: bonecos de treino para quebrar | obst: caixas e pilares
+// giros: bastões giratórios (pule!) | velGiro: velocidade deles
 // total: quantos inimigos | juntos: quantos na arena ao mesmo tempo
 // atacam: quantos podem atacar juntos | vida/dano/vel: força dos inimigos
 // espera: tempo entre ataques | preparo: aviso antes do golpe (menor = mais difícil)
 // bloqueio: chance do inimigo defender seu golpe
 // =====================================================
 const FAIXAS = [
-  { nome:'FAIXA AMARELA',  cor:0xf5d000, css:'#f5d000', ceu:0x26304a, total:3, juntos:1, atacam:1, vida:40,  dano:6,  vel:2.2, espera:2.4, preparo:0.80, bloqueio:0,    dica:'Aprenda o básico: ataque e defenda!' },
-  { nome:'FAIXA VERMELHA', cor:0xd32f2f, css:'#e53935', ceu:0x3a2030, total:4, juntos:2, atacam:1, vida:50,  dano:8,  vel:2.5, espera:2.1, preparo:0.70, bloqueio:0,    dica:'Agora são dois de uma vez!' },
-  { nome:'FAIXA LARANJA',  cor:0xff8f00, css:'#ff9800', ceu:0x40301c, total:5, juntos:2, atacam:1, vida:60,  dano:9,  vel:2.8, espera:1.9, preparo:0.60, bloqueio:0.10, dica:'Cuidado: eles começam a defender.' },
-  { nome:'FAIXA VERDE',    cor:0x2e7d32, css:'#43a047', ceu:0x1c3a2a, total:6, juntos:3, atacam:2, vida:70,  dano:10, vel:3.0, espera:1.7, preparo:0.55, bloqueio:0.15, dica:'Use a esquiva (Shift)!' },
-  { nome:'FAIXA ROXA',     cor:0x7b1fa2, css:'#ba68c8', ceu:0x2a1c40, total:7, juntos:3, atacam:2, vida:85,  dano:12, vel:3.3, espera:1.5, preparo:0.48, bloqueio:0.25, dica:'Ataques bem mais rápidos!' },
-  { nome:'FAIXA MARROM',   cor:0x5d4037, css:'#a1887f', ceu:0x2e2420, total:8, juntos:4, atacam:2, vida:95,  dano:14, vel:3.6, espera:1.3, preparo:0.42, bloqueio:0.30, dica:'Quatro adversários juntos!' },
-  { nome:'FAIXA PRETA',    cor:0x111111, css:'#e0e0e0', ceu:0x120c18, total:5, juntos:2, atacam:2, vida:100, dano:15, vel:3.8, espera:1.2, preparo:0.40, bloqueio:0.35, luz:0xeeeeee, chefe:true, dica:'Vença os guardas e o GRANDE MESTRE!' }
+  { nome:'FAIXA AMARELA',  cor:0xf5d000, css:'#f5d000', ceu:0x26304a, bonecos:3, obst:2, giros:0, velGiro:0,   total:3, juntos:1, atacam:1, vida:40,  dano:6,  vel:2.2, espera:2.4, preparo:0.80, bloqueio:0,    dica:'Quebre os bonecos e aprenda o básico!' },
+  { nome:'FAIXA VERMELHA', cor:0xd32f2f, css:'#e53935', ceu:0x3a2030, bonecos:4, obst:3, giros:0, velGiro:0,   total:4, juntos:2, atacam:1, vida:50,  dano:8,  vel:2.5, espera:2.1, preparo:0.70, bloqueio:0,    dica:'Use as caixas para se proteger!' },
+  { nome:'FAIXA LARANJA',  cor:0xff8f00, css:'#ff9800', ceu:0x40301c, bonecos:4, obst:4, giros:1, velGiro:1.2, total:5, juntos:2, atacam:1, vida:60,  dano:9,  vel:2.8, espera:1.9, preparo:0.60, bloqueio:0.10, dica:'Bastão giratório! Pule (Espaço) por cima.' },
+  { nome:'FAIXA VERDE',    cor:0x2e7d32, css:'#43a047', ceu:0x1c3a2a, bonecos:5, obst:5, giros:1, velGiro:1.6, total:6, juntos:3, atacam:2, vida:70,  dano:10, vel:3.0, espera:1.7, preparo:0.55, bloqueio:0.15, dica:'Use a esquiva (Shift)!' },
+  { nome:'FAIXA ROXA',     cor:0x7b1fa2, css:'#ba68c8', ceu:0x2a1c40, bonecos:5, obst:6, giros:2, velGiro:1.9, total:7, juntos:3, atacam:2, vida:85,  dano:12, vel:3.3, espera:1.5, preparo:0.48, bloqueio:0.25, dica:'Dois bastões e ataques bem rápidos!' },
+  { nome:'FAIXA MARROM',   cor:0x5d4037, css:'#a1887f', ceu:0x2e2420, bonecos:6, obst:7, giros:2, velGiro:2.3, total:8, juntos:4, atacam:2, vida:95,  dano:14, vel:3.6, espera:1.3, preparo:0.42, bloqueio:0.30, dica:'Quatro adversários juntos!' },
+  { nome:'FAIXA PRETA',    cor:0x111111, css:'#e0e0e0', ceu:0x120c18, bonecos:6, obst:8, giros:3, velGiro:2.6, total:5, juntos:2, atacam:2, vida:100, dano:15, vel:3.8, espera:1.2, preparo:0.40, bloqueio:0.35, luz:0xeeeeee, chefe:true, dica:'Vença os guardas e o GRANDE MESTRE!' }
 ];
 // o chefe final da faixa preta
 const CHEFE = { vida:360, dano:20, vel:4.2, espera:1.0, preparo:0.38, bloqueio:0.4, escala:1.35 };
@@ -297,6 +301,78 @@ for (let i = 0; i < 8; i++) {
   l.position.set(p.position.x, 5.4, p.position.z); scene.add(l);
 }
 
+// ===== OBSTÁCULOS DA ARENA =====
+const grupoObs = new THREE.Group(); scene.add(grupoObs);
+const matCaixa = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: .9 });
+const matPedra = new THREE.MeshStandardMaterial({ color: 0x77777f, roughness: 1 });
+const matPoste = new THREE.MeshStandardMaterial({ color: 0x3a3a40 });
+const matBastao = new THREE.MeshStandardMaterial({ color: 0xaa2222, emissive: 0x551111 });
+let solidos = [];  // coisas que bloqueiam o caminho {x, z, r, h}
+let giros = [];    // bastões giratórios
+let ocupados = []; // lugares já usados na arena
+
+// acha um lugar livre na arena
+function lugarLivre(rMin, rMax, folga) {
+  for (let i = 0; i < 60; i++) {
+    const a = Math.random() * Math.PI * 2, r = rMin + Math.random() * (rMax - rMin);
+    const x = Math.sin(a) * r, z = Math.cos(a) * r;
+    if (ocupados.every(o => Math.hypot(o.x - x, o.z - z) > o.r + folga)) return { x, z };
+  }
+  return { x: Math.sin(Math.random() * 6.28) * rMax, z: Math.cos(Math.random() * 6.28) * rMax };
+}
+function limparObstaculos() {
+  while (grupoObs.children.length) {
+    const o = grupoObs.children.pop();
+    o.traverse(m => { if (m.geometry) m.geometry.dispose(); });
+  }
+  solidos = []; giros = []; ocupados = [];
+}
+// monta caixas, pilares e bastões da faixa
+function montarArena(f) {
+  limparObstaculos();
+  for (let i = 0; i < f.obst; i++) {
+    const p = lugarLivre(3.5, 11, 2.2);
+    if (Math.random() < .6) {
+      // caixa baixa: dá pra pular por cima
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1.3, .8, 1.3), matCaixa);
+      m.position.set(p.x, .4, p.z); m.rotation.y = Math.random() * 3;
+      m.castShadow = m.receiveShadow = true; grupoObs.add(m);
+      solidos.push({ x: p.x, z: p.z, r: .85, h: .8 });
+    } else {
+      // pilar de pedra: alto, tem que dar a volta
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(.55, .65, 2.4, 12), matPedra);
+      m.position.set(p.x, 1.2, p.z); m.castShadow = m.receiveShadow = true; grupoObs.add(m);
+      solidos.push({ x: p.x, z: p.z, r: .65, h: 99 });
+    }
+    ocupados.push({ x: p.x, z: p.z, r: 1 });
+  }
+  for (let i = 0; i < f.giros; i++) {
+    const p = lugarLivre(5, 9, 2.8);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(.25, .3, 1, 10), matPoste);
+    base.position.set(p.x, .5, p.z); base.castShadow = true; grupoObs.add(base);
+    const rot = new THREE.Group(); rot.position.set(p.x, .5, p.z);
+    const bastao = new THREE.Mesh(new THREE.BoxGeometry(3.8, .18, .18), matBastao);
+    bastao.castShadow = true; rot.add(bastao);
+    for (const s of [-1.9, 1.9]) {
+      const ponta = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), matBastao);
+      ponta.position.x = s; rot.add(ponta);
+    }
+    rot.rotation.y = Math.random() * 6.28;
+    grupoObs.add(rot);
+    giros.push({ obj: rot, x: p.x, z: p.z, vel: f.velGiro * (i % 2 ? -1 : 1), dano: 8 + FAIXAS.indexOf(f) * 1.5 });
+    solidos.push({ x: p.x, z: p.z, r: .35, h: 99 });
+    ocupados.push({ x: p.x, z: p.z, r: 2 });
+  }
+}
+// empurra para fora dos obstáculos (se não pulou por cima)
+function colidir(p, raio) {
+  for (const o of solidos) {
+    if (p.y > o.h) continue;
+    const dx = p.x - o.x, dz = p.z - o.z, d = Math.hypot(dx, dz) || .01, min = o.r + raio;
+    if (d < min) { p.x += dx / d * (min - d); p.z += dz / d * (min - d); }
+  }
+}
+
 // ===== BONECO DO LUTADOR (feito de caixas) =====
 function criarLutador(corGi, corFaixa, escala) {
   const g = new THREE.Group();
@@ -319,7 +395,7 @@ function criarLutador(corGi, corFaixa, escala) {
   g.userData = {
     bracoE: membro(-.4, 1.55, .6, .18), bracoD: membro(.4, 1.55, .6, .18),
     pernaE: membro(-.16, .9, .85, .22), pernaD: membro(.16, .9, .85, .22),
-    gi, faixaMat
+    gi, faixaMat, pele
   };
   g.scale.setScalar(escala);
   scene.add(g);
@@ -358,6 +434,7 @@ function atualizarParticulas(dt) {
 // ===== ESTADO DO JOGO =====
 let estado = 'menu', faixaAtual = 0, vidas = 3, hp = 100;
 let inimigos = [], gerados = 0, derrotados = 0, chefeGerado = false, chefeVencido = false, timerSpawn = 0;
+let etapa = 'bonecos', bonecosQuebrados = 0;
 let tremor = 0, parada = 0, ultimaPausa = 0, tokenFase = 0, textoObjetivo = '';
 let stats = { tempo: 0, golpes: 0, defesas: 0 };
 let mouseDef = false, toqueDef = false;
@@ -371,8 +448,9 @@ const jog = {
   pos: new THREE.Vector3(), kb: new THREE.Vector3(), mov: new THREE.Vector3(), esqDir: new THREE.Vector3(),
   vy: 0, noChao: true, ang: Math.PI, alvoAng: Math.PI, passo: 0,
   ataque: 0, tAtaque: 0, golpe: null, comboPasso: 0, comboJanela: 0, filaCombo: false, acertou: new Set(),
-  defendendo: false, esquiva: 0, esqCd: 0, invul: 0
+  defendendo: false, esquiva: 0, esqCd: 0, invul: 0, cdGiro: 0
 };
+montarArena(FAIXAS[0]); // arena de enfeite no menu
 
 // progresso salvo (faixas liberadas)
 let liberada = 0;
@@ -443,11 +521,15 @@ function iniciarFase(i) {
   const f = FAIXAS[i];
   inimigos.slice().forEach(remover);
   gerados = derrotados = 0; chefeGerado = chefeVencido = false; timerSpawn = 1.5;
+  etapa = 'bonecos'; bonecosQuebrados = 0;
   hp = 100;
   jog.pos.set(0, 0, 0); jog.kb.set(0, 0, 0); jog.vy = 0;
-  jog.ataque = 0; jog.filaCombo = false; jog.esquiva = 0; jog.invul = 0;
+  jog.ataque = 0; jog.filaCombo = false; jog.esquiva = 0; jog.invul = 0; jog.cdGiro = 0;
   jog.ang = jog.alvoAng = Math.PI; cam.yaw = 0; cam.pitch = .35;
   hbAtaque.visible = false; mouseDef = toqueDef = false;
+  // obstáculos e bonecos de treino
+  montarArena(f);
+  for (let k = 0; k < f.bonecos; k++) { const p = lugarLivre(3, 9, 1.6); gerarBoneco(p.x, p.z); ocupados.push({ x: p.x, z: p.z, r: .6 }); }
   // pinta a arena com a cor da faixa
   document.documentElement.style.setProperty('--belt', f.css);
   const luz = f.luz || f.cor;
@@ -473,6 +555,29 @@ function irMenu() {
   esconderHUD(); soltarMouse(); mostrarTela('screen-start');
 }
 
+// barrinha de vida que flutua em cima
+function criarBarra(classe) {
+  const barra = document.createElement('div');
+  barra.className = 'ebar ' + classe;
+  barra.innerHTML = '<i></i>';
+  $('enemy-bars').appendChild(barra);
+  return barra;
+}
+// boneco de treino: madeira, braços abertos, não ataca
+function gerarBoneco(x, z) {
+  const obj = criarLutador(0xa0784a, 0x5a3a1a, 1);
+  obj.userData.pele.color.setHex(0xc89a62);
+  obj.userData.bracoE.rotation.z = -1.3; obj.userData.bracoD.rotation.z = 1.3;
+  obj.rotation.y = Math.random() * 6.28;
+  corpoHB(obj);
+  const barra = criarBarra('dummy');
+  const vida = 20 + faixaAtual * 5;
+  inimigos.push({
+    obj, barra, fill: barra.firstChild, boneco: true, chefe: false, escala: 1,
+    pos: new THREE.Vector3(x, 0, z), kb: new THREE.Vector3(), ang: obj.rotation.y,
+    vida, vidaMax: vida, bloqueio: 0, estado: 'parado', t: 0, flash: 0, balanco: 0
+  });
+}
 // cria um inimigo na borda da arena
 function gerarInimigo(chefe) {
   const f = FAIXAS[faixaAtual];
@@ -481,10 +586,7 @@ function gerarInimigo(chefe) {
   const a = Math.random() * Math.PI * 2;
   const obj = criarLutador(chefe ? 0x5a0d0d : 0x30343f, chefe ? 0x0a0a0a : f.cor, esc);
   corpoHB(obj);
-  const barra = document.createElement('div');
-  barra.className = 'ebar' + (chefe ? ' boss' : '');
-  barra.innerHTML = '<i></i>';
-  $('enemy-bars').appendChild(barra);
+  const barra = criarBarra(chefe ? 'boss' : '');
   const e = {
     obj, barra, fill: barra.firstChild, chefe, escala: esc,
     pos: new THREE.Vector3(Math.sin(a) * 11, 0, Math.cos(a) * 11), kb: new THREE.Vector3(), ang: a + Math.PI,
@@ -504,20 +606,29 @@ function remover(e) {
   if (k >= 0) inimigos.splice(k, 1);
 }
 
-// controla quantos inimigos aparecem e quando a fase acaba
+// controla as etapas: 1) bonecos  2) luta  3) chefe (faixa preta)
 function atualizarFase(dt) {
   const f = FAIXAS[faixaAtual];
-  const vivos = inimigos.filter(e => e.estado !== 'morto').length;
-  timerSpawn -= dt;
-  if (gerados < f.total && vivos < f.juntos && timerSpawn <= 0) { gerarInimigo(false); timerSpawn = 1.2; }
-  if (f.chefe && !chefeGerado && derrotados >= f.total) {
-    chefeGerado = true; gerarInimigo(true);
-    mostrarToast('GRANDE MESTRE!<small>Só o chute (3º golpe) interrompe o ataque dele!</small>', 2600);
+  let txt;
+  if (etapa === 'bonecos') {
+    txt = `QUEBRE OS BONECOS ${bonecosQuebrados}/${f.bonecos}`;
+    if (bonecosQuebrados >= f.bonecos) {
+      etapa = 'luta'; timerSpawn = 1.2;
+      mostrarToast('LUTA!<small>Os oponentes chegaram!</small>', 1800);
+    }
+  } else {
+    const vivos = inimigos.filter(e => e.estado !== 'morto' && !e.boneco).length;
+    timerSpawn -= dt;
+    if (gerados < f.total && vivos < f.juntos && timerSpawn <= 0) { gerarInimigo(false); timerSpawn = 1.2; }
+    if (f.chefe && !chefeGerado && derrotados >= f.total) {
+      chefeGerado = true; gerarInimigo(true);
+      mostrarToast('GRANDE MESTRE!<small>Só o chute (3º golpe) interrompe o ataque dele!</small>', 2600);
+    }
+    txt = chefeGerado ? 'DERROTE O GRANDE MESTRE' : `DERROTE OS OPONENTES ${derrotados}/${f.total}`;
+    const venceu = f.chefe ? chefeVencido : derrotados >= f.total;
+    if (venceu) concluirFase();
   }
-  const txt = chefeGerado ? 'DERROTE O GRANDE MESTRE' : `DERROTE OS OPONENTES ${derrotados}/${f.total}`;
   if (txt !== textoObjetivo) { textoObjetivo = txt; $('objective').textContent = txt; }
-  const venceu = f.chefe ? chefeVencido : derrotados >= f.total;
-  if (venceu) concluirFase();
 }
 function concluirFase() {
   estado = 'transicao';
@@ -551,7 +662,7 @@ function iniciarGolpe() {
   jog.golpe = GOLPES[jog.comboPasso];
   jog.ataque = jog.golpe.dur; jog.tAtaque = 0; jog.acertou = new Set();
   jog.comboPasso = (jog.comboPasso + 1) % 3; jog.comboJanela = 0; jog.filaCombo = false;
-  // mira automática no inimigo mais perto
+  // mira automática no alvo mais perto
   const alvo = inimigoMaisPerto(3.5);
   if (alvo) jog.ang = jog.alvoAng = Math.atan2(alvo.pos.x - jog.pos.x, alvo.pos.z - jog.pos.z);
 }
@@ -574,7 +685,7 @@ function alternarHitbox() {
   if (estado === 'jogando') mostrarToast(mostrarHitbox ? 'HITBOXES ON' : 'HITBOXES OFF', 800);
 }
 
-// jogador leva dano
+// jogador leva dano (de inimigo ou de bastão)
 function danoJogador(d, e) {
   if (jog.invul > 0 || jog.esquiva > 0 || estado !== 'jogando') return;
   const nx = jog.pos.x - e.pos.x, nz = jog.pos.z - e.pos.z, L = Math.hypot(nx, nz) || 1;
@@ -609,16 +720,21 @@ function perderVida() {
   mostrarToast('LEVANTE-SE!', 1200);
   // empurra todo mundo pra longe
   for (const e of inimigos) {
-    if (e.estado === 'morto') continue;
+    if (e.estado === 'morto' || e.boneco) continue;
     const dx = e.pos.x - jog.pos.x, dz = e.pos.z - jog.pos.z, L = Math.hypot(dx, dz) || 1;
     e.kb.set(dx / L * 9, 0, dz / L * 9); e.estado = 'atordoado'; e.t = .8;
   }
 }
 
-// inimigo leva dano
+// inimigo (ou boneco) leva dano
 function acertarInimigo(e, g, fwd) {
   const ponto = new THREE.Vector3(e.pos.x, 1.3 * e.escala, e.pos.z);
-  if (e.estado === 'perseguir' && Math.random() < e.bloqueio) {
+  if (e.boneco) {
+    // boneco só balança e solta lascas de madeira
+    e.vida -= g.dano; e.flash = .1; e.balanco = 1;
+    faiscas(ponto, 0xc58a4a, g.tipo === 'chute' ? 14 : 8);
+    parada = .03;
+  } else if (e.estado === 'perseguir' && Math.random() < e.bloqueio) {
     // inimigo defendeu!
     e.vida -= g.dano * .15; e.defesa = .35;
     e.kb.copy(fwd).multiplyScalar(2);
@@ -638,7 +754,9 @@ function acertarInimigo(e, g, fwd) {
 function morrer(e) {
   e.estado = 'morto'; e.t = 1.2; e.vida = 0;
   e.barra.classList.add('hidden');
-  if (e.chefe) chefeVencido = true; else derrotados++;
+  if (e.boneco) bonecosQuebrados++;
+  else if (e.chefe) chefeVencido = true;
+  else derrotados++;
 }
 
 // ===== ATUALIZA O JOGADOR =====
@@ -657,7 +775,7 @@ function atualizarJogador(dt) {
   const mx = fx * iz + rx * ix, mz = fz * iz + rz * ix;
   jog.mov.set(mx, 0, mz);
   jog.defendendo = (mouseDef || toqueDef) && jog.esquiva <= 0 && estado === 'jogando';
-  jog.esqCd -= dt; jog.invul -= dt; jog.comboJanela -= dt;
+  jog.esqCd -= dt; jog.invul -= dt; jog.comboJanela -= dt; jog.cdGiro -= dt;
 
   let vel = 5.5;
   if (jog.defendendo) vel = 2.2;
@@ -669,6 +787,13 @@ function atualizarJogador(dt) {
   jog.vy -= 22 * dt; jog.pos.y += jog.vy * dt;
   if (jog.pos.y <= 0) { jog.pos.y = 0; jog.vy = 0; jog.noChao = true; }
   limitarArena(jog.pos);
+  colidir(jog.pos, .45);
+  // bonecos de treino também bloqueiam o caminho
+  for (const b of inimigos) {
+    if (!b.boneco || b.estado === 'morto') continue;
+    const dx = jog.pos.x - b.pos.x, dz = jog.pos.z - b.pos.z, d = Math.hypot(dx, dz) || .01;
+    if (d < .9 && jog.pos.y < 1.5) { jog.pos.x += dx / d * (.9 - d); jog.pos.z += dz / d * (.9 - d); }
+  }
 
   // para onde o jogador olha
   if (jog.ataque <= 0 && jog.esquiva <= 0 && (mx || mz)) jog.alvoAng = Math.atan2(mx, mz);
@@ -717,6 +842,22 @@ function atualizarJogador(dt) {
   jogObj.visible = !(jog.invul > 0 && Math.floor(performance.now() / 60) % 2);
 }
 
+// ===== BASTÕES GIRATÓRIOS =====
+function atualizarGiros(dt) {
+  for (const g of giros) {
+    g.obj.rotation.y += g.vel * dt;
+    if (estado !== 'jogando' || jog.cdGiro > 0) continue;
+    // o jogador está encostando no bastão? (pulando passa por cima)
+    const px = jog.pos.x - g.x, pz = jog.pos.z - g.z, a = g.obj.rotation.y;
+    const dx = Math.cos(a), dz = -Math.sin(a);
+    const ao_longo = px * dx + pz * dz, distLinha = Math.abs(px * dz - pz * dx);
+    if (Math.abs(ao_longo) < 1.95 && distLinha < .5 && jog.pos.y < .6) {
+      jog.cdGiro = .8;
+      danoJogador(g.dano, { pos: new THREE.Vector3(g.x, 0, g.z) });
+    }
+  }
+}
+
 // ===== INTELIGÊNCIA DOS INIMIGOS =====
 function podeAtacar() {
   const n = inimigos.filter(o => o.estado === 'preparar' || o.estado === 'golpe').length;
@@ -736,22 +877,34 @@ function golpeInimigo(e) {
 }
 function atualizarInimigo(e, dt) {
   const ud = e.obj.userData;
+  e.pos.addScaledVector(e.kb, dt); e.kb.multiplyScalar(Math.max(0, 1 - 6 * dt));
+  e.flash -= dt;
+
+  if (e.estado === 'morto') {
+    // cai pra trás e some
+    e.t -= dt;
+    e.obj.rotation.x = Math.max(-Math.PI / 2, e.obj.rotation.x - dt * 5);
+    e.obj.position.copy(e.pos);
+    if (e.t < .3) e.obj.position.y = -(.3 - e.t) * 2;
+    if (e.t <= 0) remover(e);
+    return;
+  }
+  if (e.boneco) {
+    // boneco balança quando apanha
+    e.balanco = Math.max(0, e.balanco - dt * 2);
+    e.obj.rotation.x = Math.sin(e.balanco * 25) * e.balanco * .35;
+    ud.gi.emissive.setHex(e.flash > 0 ? 0xffffff : 0x000000);
+    e.obj.position.copy(e.pos);
+    return;
+  }
+
   const dx = jog.pos.x - e.pos.x, dz = jog.pos.z - e.pos.z, dist = Math.hypot(dx, dz) || .001;
   const nx = dx / dist, nz = dz / dist;
   const alcance = 1.7 * e.escala;
-  e.pos.addScaledVector(e.kb, dt); e.kb.multiplyScalar(Math.max(0, 1 - 6 * dt));
-  e.flash -= dt; e.defesa -= dt;
+  e.defesa -= dt;
   let andando = false;
 
   switch (e.estado) {
-    case 'morto':
-      // cai pra trás e some
-      e.t -= dt;
-      e.obj.rotation.x = Math.max(-Math.PI / 2, e.obj.rotation.x - dt * 5);
-      e.obj.position.copy(e.pos);
-      if (e.t < .3) e.obj.position.y = -(.3 - e.t) * 2;
-      if (e.t <= 0) remover(e);
-      return;
     case 'atordoado':
       e.t -= dt; if (e.t <= 0) e.estado = 'perseguir';
       break;
@@ -786,6 +939,7 @@ function atualizarInimigo(e, dt) {
   }
   if (e.estado !== 'atordoado') e.ang = lerpAng(e.ang, Math.atan2(nx, nz), Math.min(1, dt * (e.estado === 'preparar' ? 4 : 8)));
   limitarArena(e.pos);
+  colidir(e.pos, .45 * e.escala);
 
   // brilho: branco = levou golpe, vermelho = vai atacar!
   ud.gi.emissive.setHex(e.flash > 0 ? 0xffffff : e.estado === 'preparar' ? (e.giro ? 0xaa3300 : 0x771111) : 0x000000);
@@ -802,9 +956,9 @@ function atualizarInimigo(e, dt) {
   e.obj.position.copy(e.pos);
   e.obj.rotation.y = e.ang + (e.estado === 'golpe' && e.giro ? (1 - e.t / .3) * Math.PI * 2 : 0);
 }
-// não deixa os bonecos ficarem um dentro do outro
+// não deixa os lutadores ficarem um dentro do outro
 function separar() {
-  const vivos = inimigos.filter(e => e.estado !== 'morto');
+  const vivos = inimigos.filter(e => e.estado !== 'morto' && !e.boneco);
   for (let i = 0; i < vivos.length; i++) {
     const a = vivos[i];
     for (let j = i + 1; j < vivos.length; j++) {
@@ -965,6 +1119,7 @@ function loop(agora) {
   } else if (estado === 'menu') {
     cam.yaw += dt * .15; // câmera girando no menu
   }
+  atualizarGiros(dt);
   atualizarParticulas(dt);
   atualizarCamera(dt);
   atualizarBarras();
